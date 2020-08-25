@@ -6,4 +6,7 @@
 3. Run the command `! python main.py --rafd_image_dir Big_slim --num_iters 20000 --sample_step 500 --c_dim 2 --log_step 100 --model_save_step 5000 --batch_size 64 --n_critic 2 --rafd_crop_size 128 --image_size 128 ` to train on the **Big_slim_dataset**. 
 **Alternatively to train on custom dataset replace the `slim_dataset/Train_dataset` string with the path of your custom dataset.**  
   For further options such as **number of epochs, batch_size etc** refer **main.py**
-## Note: After running step 3 after every sample stepth iteration generated samples will be stored in stargan/samples folder for performance evaluation.  
+### Note: After running step 3 after every sample stepth iteration generated samples will be stored in stargan/samples folder for performance evaluation.
+
+## For Continuing training from 20000 iteration to 30000 iteration follow:
+1. `python main.py --rafd_image_dir Big_slim --num_iters 30000 --sample_step 500 --c_dim 2 --log_step 100 --model_save_step 5000 --batch_size 64 --n_critic 2 --rafd_crop_size 128 --image_size 128 --resume_iters 20000`.

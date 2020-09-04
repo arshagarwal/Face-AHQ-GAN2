@@ -1,0 +1,6 @@
+
+From pytorch/pytorch:latest 
+WORKDIR C_slim
+COPY . .
+RUN apt-get update && apt-get install -y git
+#RUN pip3 install --default-timeout=100 -r requirements.txt

@@ -185,6 +185,9 @@ class Solver(object):
             x_test.append(x_fixed)
             y_test.append(c_fixed_list)
 
+        x_fixed = x_test
+        c_fixed_list = y_test
+
         # Learning rate cache for decaying.
         g_lr = self.g_lr
         d_lr = self.d_lr

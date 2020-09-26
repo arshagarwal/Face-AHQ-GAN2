@@ -1,5 +1,6 @@
 from model import Generator
 from model import Discriminator
+from data_loader import get_loader
 from torch.autograd import Variable
 from torchvision.utils import save_image
 import torch
@@ -13,17 +14,12 @@ import datetime
 class Solver(object):
     """Solver for training and testing StarGAN."""
 
-    def __init__(self, celeba_loader, rafd_loader, config):
+    def __init__(self, config):
         """Initialize configurations."""
 
-        # Data loader.
-        self.celeba_loader = celeba_loader
-        self.rafd_loader = rafd_loader
 
         # Model configurations.
         self.c_dim = config.c_dim
-        self.c2_dim = config.c2_dim
-        self.image_size = config.image_size
         self.g_conv_dim = config.g_conv_dim
         self.d_conv_dim = config.d_conv_dim
         self.g_repeat_num = config.g_repeat_num
@@ -33,9 +29,7 @@ class Solver(object):
         self.lambda_gp = config.lambda_gp
 
         # Training configurations.
-        self.dataset = config.dataset
-        self.batch_size = config.batch_size
-        self.num_iters = config.num_iters
+        self.num_iters = int(config.iters.split(',')[-1])
         self.num_iters_decay = config.num_iters_decay
         self.g_lr = config.g_lr
         self.d_lr = config.d_lr
@@ -43,7 +37,8 @@ class Solver(object):
         self.beta1 = config.beta1
         self.beta2 = config.beta2
         self.resume_iters = config.resume_iters
-        self.selected_attrs = config.selected_attrs
+        self.mode = config.mode
+        self.num_workers = config.num_workers
 
         # Test configurations.
         self.test_iters = config.test_iters
@@ -57,6 +52,7 @@ class Solver(object):
         self.sample_dir = config.sample_dir
         self.model_save_dir = config.model_save_dir
         self.result_dir = config.result_dir
+        self.img_dir = config.img_dir
 
         # Step size.
         self.log_step = config.log_step
@@ -64,19 +60,44 @@ class Solver(object):
         self.model_save_step = config.model_save_step
         self.lr_update_step = config.lr_update_step
 
+        # initializing progressive parameters array
+        self.img_size = config.img_size.split(',')
+        self.batch_size = config.batch_size.split(',')
+        self.iters = config.iters.split(',')
+
+        # converting to integer arrays
+        self.img_size = [int(i) for i in self.img_size]
+        self.batch_size = [int(i) for i in self.batch_size]
+        self.iters = [int(i) for i in self.iters]
+
+        print("image size is {}".format(self.img_size))
+
+        assert len(self.img_size) == len(self.batch_size), "batch size and image size should have the same length"
+        assert len(self.img_size) == len(self.iters), "batch size and iters should have the same length"
+
         # Build the model and tensorboard.
         self.build_model()
-        if self.use_tensorboard:
-            self.build_tensorboard()
+
+        # creating the data loaders array
+        self.loader = self.load_data(self.img_size, self.batch_size)
+
+    def load_data(self, img_size, batch_size):
+        """
+        loads the array of data loaders for corresponding batch_size and image_size
+        """
+        loaders = []
+        for i in range(len(batch_size)):
+            loaders.append(get_loader(self.img_dir, img_size[i], (img_size[i], img_size[i]), batch_size[i], mode=self.mode, num_workers=self.num_workers))
+
+        return loaders
+
+
 
     def build_model(self):
         """Create a generator and a discriminator."""
-        if self.dataset in ['CelebA', 'RaFD']:
-            self.G = Generator(self.g_conv_dim, self.c_dim, self.g_repeat_num)
-            self.D = Discriminator(self.image_size, self.d_conv_dim, self.c_dim, self.d_repeat_num) 
-        elif self.dataset in ['Both']:
-            self.G = Generator(self.g_conv_dim, self.c_dim+self.c2_dim+2, self.g_repeat_num)   # 2 for mask vector.
-            self.D = Discriminator(self.image_size, self.d_conv_dim, self.c_dim+self.c2_dim, self.d_repeat_num)
+
+        self.G = Generator(self.g_conv_dim, self.c_dim, self.g_repeat_num)
+        self.D = Discriminator(self.d_conv_dim, self.c_dim, self.d_repeat_num)
 
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2])
         self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2])
@@ -103,10 +124,6 @@ class Solver(object):
         self.G.load_state_dict(torch.load(G_path, map_location=lambda storage, loc: storage))
         self.D.load_state_dict(torch.load(D_path, map_location=lambda storage, loc: storage))
 
-    def build_tensorboard(self):
-        """Build a tensorboard logger."""
-        from logger import Logger
-        self.logger = Logger(self.log_dir)
 
     def update_lr(self, g_lr, d_lr):
         """Decay learning rates of the generator and discriminator."""
@@ -125,19 +142,6 @@ class Solver(object):
         out = (x + 1) / 2
         return out.clamp_(0, 1)
 
-    def gradient_penalty(self, y, x):
-        """Compute gradient penalty: (L2_norm(dy/dx) - 1)**2."""
-        weight = torch.ones(y.size()).to(self.device)
-        dydx = torch.autograd.grad(outputs=y,
-                                   inputs=x,
-                                   grad_outputs=weight,
-                                   retain_graph=True,
-                                   create_graph=True,
-                                   only_inputs=True)[0]
-
-        dydx = dydx.view(dydx.size(0), -1)
-        dydx_l2norm = torch.sqrt(torch.sum(dydx**2, dim=1))
-        return torch.mean((dydx_l2norm-1)**2)
 
     def label2onehot(self, labels, dim):
         """Convert label indices to one-hot vectors."""
@@ -146,52 +150,40 @@ class Solver(object):
         out[np.arange(batch_size), labels.long()] = 1
         return out
 
-    def create_labels(self, c_org, c_dim=5, dataset='CelebA', selected_attrs=None):
+    def create_labels(self, c_org, c_dim=5):
         """Generate target domain labels for debugging and testing."""
-        # Get hair color indices.
-        if dataset == 'CelebA':
-            hair_color_indices = []
-            for i, attr_name in enumerate(selected_attrs):
-                if attr_name in ['Black_Hair', 'Blond_Hair', 'Brown_Hair', 'Gray_Hair']:
-                    hair_color_indices.append(i)
 
         c_trg_list = []
         for i in range(c_dim):
-            if dataset == 'CelebA':
-                c_trg = c_org.clone()
-                if i in hair_color_indices:  # Set one hair color to 1 and the rest to 0.
-                    c_trg[:, i] = 1
-                    for j in hair_color_indices:
-                        if j != i:
-                            c_trg[:, j] = 0
-                else:
-                    c_trg[:, i] = (c_trg[:, i] == 0)  # Reverse attribute value.
-            elif dataset == 'RaFD':
-                c_trg = self.label2onehot(torch.ones(c_org.size(0))*i, c_dim)
+            c_trg = self.label2onehot(torch.ones(c_org.size(0))*i, c_dim)
 
             c_trg_list.append(c_trg.to(self.device))
         return c_trg_list
 
-    def classification_loss(self, logit, target, dataset='CelebA'):
-        """Compute binary or softmax cross entropy loss."""
-        if dataset == 'CelebA':
-            return F.binary_cross_entropy_with_logits(logit, target, size_average=False) / logit.size(0)
-        elif dataset == 'RaFD':
-            return F.cross_entropy(logit, target)
+    def get_loader_index(self, iters, count):
+        """
+        given iters array and count returns the index of data loader to be used
+        """
+        for i in range(len(iters)):
+            if count <= iters[i]:
+                return i
+
+
 
     def train(self):
-        """Train StarGAN within a single dataset."""
-        # Set data loader.
-        if self.dataset == 'CelebA':
-            data_loader = self.celeba_loader
-        elif self.dataset == 'RaFD':
-            data_loader = self.rafd_loader
+        """Progressive Training Loop."""
 
+        loader = self.loader
+        x_test = []
+        y_test = []
         # Fetch fixed inputs for debugging.
-        data_iter = iter(data_loader)
-        x_fixed, c_org = next(data_iter)
-        x_fixed = x_fixed.to(self.device)
-        c_fixed_list = self.create_labels(c_org, self.c_dim, self.dataset, self.selected_attrs)
+        for i in range(len(loader)):
+            data_iter = iter(loader[i])
+            x_fixed, c_org = next(data_iter)
+            x_fixed = x_fixed.to(self.device)
+            c_fixed_list = self.create_labels(c_org, self.c_dim)
+            x_test.append(x_fixed)
+            y_test.append(c_fixed_list)
 
         # Learning rate cache for decaying.
         g_lr = self.g_lr
@@ -206,29 +198,29 @@ class Solver(object):
         # Start training.
         print('Start training...')
         start_time = time.time()
+        data = [iter(i) for i in loader]
         for i in range(start_iters, self.num_iters):
 
             # =================================================================================== #
             #                             1. Preprocess input data                                #
             # =================================================================================== #
 
+            load_idx = self.get_loader_index(self.iters, i+1)
             # Fetch real images and labels.
             try:
-                x_real, label_org = next(data_iter)
+                x_real, label_org = next(data[load_idx])
             except:
-                data_iter = iter(data_loader)
-                x_real, label_org = next(data_iter)
+                data[load_idx] = iter(loader[load_idx])
+                x_real, label_org = next(data[load_idx])
+
+            assert x_real.shape == (self.batch_size[load_idx], 3, self.img_size[load_idx], self.img_size[load_idx]),"check data loading image shape is {}".format(x_real.shape)
 
             # Generate target domain labels randomly.
             rand_idx = torch.randperm(label_org.size(0))
             label_trg = label_org[rand_idx]
 
-            if self.dataset == 'CelebA':
-                c_org = label_org.clone()
-                c_trg = label_trg.clone()
-            elif self.dataset == 'RaFD':
-                c_org = self.label2onehot(label_org, self.c_dim)
-                c_trg = self.label2onehot(label_trg, self.c_dim)
+            c_org = self.label2onehot(label_org, self.c_dim)
+            c_trg = self.label2onehot(label_trg, self.c_dim)
 
             x_real = x_real.to(self.device)           # Input images.
             c_org = c_org.to(self.device)             # Original domain labels.
@@ -241,18 +233,17 @@ class Solver(object):
             # =================================================================================== #
 
             # Compute loss with real images.
-            out_src, out_cls = self.D(x_real)
+            out_src = self.D(x_real, label_org)
             d_loss_real = torch.mean(torch.nn.ReLU(inplace=True)(1-out_src))
-            d_loss_cls = self.classification_loss(out_cls, label_org, self.dataset)
 
             # Compute loss with fake images.
             x_fake = self.G(x_real, c_trg)
-            out_src, out_cls = self.D(x_fake.detach())
+            out_src = self.D(x_fake.detach(), label_trg)
             d_loss_fake = torch.mean(torch.nn.ReLU(inplace=True)(1+out_src))
 
 
             # Backward and optimize.
-            d_loss = d_loss_real + d_loss_fake + self.lambda_cls * d_loss_cls
+            d_loss = d_loss_real + d_loss_fake
             self.reset_grad()
             d_loss.backward()
             self.d_optimizer.step()
@@ -261,7 +252,6 @@ class Solver(object):
             loss = {}
             loss['D/loss_real'] = d_loss_real.item()
             loss['D/loss_fake'] = d_loss_fake.item()
-            loss['D/loss_cls'] = d_loss_cls.item()
             
             # =================================================================================== #
             #                               3. Train the generator                                #
@@ -270,16 +260,15 @@ class Solver(object):
             if (i+1) % self.n_critic == 0:
                 # Original-to-target domain.
                 x_fake = self.G(x_real, c_trg)
-                out_src, out_cls = self.D(x_fake)
+                out_src = self.D(x_fake, label_trg)
                 g_loss_fake = - torch.mean(out_src)
-                g_loss_cls = self.classification_loss(out_cls, label_trg, self.dataset)
 
                 # Target-to-original domain.
                 x_reconst = self.G(x_fake, c_org)
                 g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
 
                 # Backward and optimize.
-                g_loss = g_loss_fake + self.lambda_rec * g_loss_rec + self.lambda_cls * g_loss_cls
+                g_loss = g_loss_fake + self.lambda_rec * g_loss_rec
                 self.reset_grad()
                 g_loss.backward()
                 self.g_optimizer.step()
@@ -287,7 +276,6 @@ class Solver(object):
                 # Logging.
                 loss['G/loss_fake'] = g_loss_fake.item()
                 loss['G/loss_rec'] = g_loss_rec.item()
-                loss['G/loss_cls'] = g_loss_cls.item()
 
             # =================================================================================== #
             #                                 4. Miscellaneous                                    #
@@ -297,14 +285,10 @@ class Solver(object):
             if (i+1) % self.log_step == 0:
                 et = time.time() - start_time
                 et = str(datetime.timedelta(seconds=et))[:-7]
-                log = "Elapsed [{}], Iteration [{}/{}]".format(et, i+1, self.num_iters)
+                log = "Elapsed [{}], Iteration [{}/{}], Image Size {}, Batch Size {} ".format(et, i+1, self.num_iters, self.img_size[load_idx], self.batch_size[load_idx])
                 for tag, value in loss.items():
                     log += ", {}: {:.4f}".format(tag, value)
                 print(log)
-
-                if self.use_tensorboard:
-                    for tag, value in loss.items():
-                        self.logger.scalar_summary(tag, value, i+1)
 
             # Translate fixed images for debugging.
             if (i+1) % self.sample_step == 0:

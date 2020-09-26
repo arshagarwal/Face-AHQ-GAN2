@@ -185,9 +185,6 @@ class Solver(object):
             x_test.append(x_fixed)
             y_test.append(c_fixed_list)
 
-        x_fixed = x_test
-        c_fixed_list = y_test
-
         # Learning rate cache for decaying.
         g_lr = self.g_lr
         d_lr = self.d_lr
@@ -295,14 +292,17 @@ class Solver(object):
 
             # Translate fixed images for debugging.
             if (i+1) % self.sample_step == 0:
-                with torch.no_grad():
-                    x_fake_list = [x_fixed]
-                    for c_fixed in c_fixed_list:
-                        x_fake_list.append(self.G(x_fixed, c_fixed))
-                    x_concat = torch.cat(x_fake_list, dim=3)
-                    sample_path = os.path.join(self.sample_dir, '{}-images.jpg'.format(i+1))
-                    save_image(self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0)
-                    print('Saved real and fake images into {}...'.format(sample_path))
+                for j in range(len(loader)):
+                    x_fixed = x_test[j]
+                    c_fixed_list = y_test[j]
+                    with torch.no_grad():
+                        x_fake_list = [x_fixed]
+                        for c_fixed in c_fixed_list:
+                            x_fake_list.append(self.G(x_fixed, c_fixed))
+                        x_concat = torch.cat(x_fake_list, dim=3)
+                        sample_path = os.path.join(self.sample_dir, '{}_{}-images.jpg'.format(i+1), self.img_size[j])
+                        save_image(self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0)
+                        print('Saved real and fake images into {}...'.format(sample_path))
 
             # Save model checkpoints.
             if (i+1) % self.model_save_step == 0:

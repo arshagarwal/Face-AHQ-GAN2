@@ -138,7 +138,8 @@ class Discriminator(nn.Module):
     def forward(self, x, y):
         h = self.main(x)
         out = self.conv2(h)
-        out = out.view(out.size(0), -1)  # (batch, num_domains)
+        #out = out.view(out.size(0), -1)  # (batch, num_domains)
+        out = torch.reshape(out, (out.size(0), -1))
         idx = torch.LongTensor(range(y.size(0))).to(y.device)
         out = out[idx, y]  # (batch)
         return out

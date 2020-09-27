@@ -111,8 +111,7 @@ class Solver(object):
             self.gpus = [int(i) for i in self.gpus]
             self.G = torch.nn.DataParallel(self.G, device_ids=self.gpus)
             self.D = torch.nn.DataParallel(self.D, device_ids=self.gpus)
-            self.M = torch.nn.DataParallel(self.M, device_ids=self.gpus)
-            self.S = torch.nn.DataParallel(self.S, device_ids=self.gpus)
+
             
         self.G.to(self.device)
         self.D.to(self.device)
@@ -223,7 +222,7 @@ class Solver(object):
                 data[load_idx] = iter(loader[load_idx])
                 x_real, label_org = next(data[load_idx])
 
-            assert x_real.shape == (self.batch_size[load_idx], 3, self.img_size[load_idx], self.img_size[load_idx]),"check data loading image shape is {}".format(x_real.shape)
+            #assert x_real.shape == (self.batch_size[load_idx], 3, self.img_size[load_idx], self.img_size[load_idx]),"check data loading image shape is {}".format(x_real.shape)
 
             # Generate target domain labels randomly.
             rand_idx = torch.randperm(label_org.size(0))

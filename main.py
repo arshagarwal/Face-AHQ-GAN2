@@ -57,6 +57,7 @@ if __name__ == '__main__':
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for Adam optimizer')
     parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam optimizer')
     parser.add_argument('--resume_iters', type=int, default=None, help='resume training from this step')
+    parser.add_argument('--gpus', type=str, default='0', help="gpu id's to be used for training")
 
     # Progressive Training
     parser.add_argument('--iters', type=str, default='5000,7500,12500', help='iters to be performed per image size')

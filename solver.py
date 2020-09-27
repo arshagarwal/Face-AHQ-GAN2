@@ -39,6 +39,7 @@ class Solver(object):
         self.resume_iters = config.resume_iters
         self.mode = config.mode
         self.num_workers = config.num_workers
+        self.gpus = config.gpus
 
         # Test configurations.
         self.test_iters = config.test_iters
@@ -101,8 +102,17 @@ class Solver(object):
 
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2])
         self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2])
+
         self.print_network(self.G, 'G')
         self.print_network(self.D, 'D')
+
+        if self.gpus != "0" and torch.cuda.is_available():
+            self.gpus = self.gpus.split(',')
+            self.gpus = [int(i) for i in self.gpus]
+            self.G = torch.nn.DataParallel(self.G, device_ids=self.gpus)
+            self.D = torch.nn.DataParallel(self.D, device_ids=self.gpus)
+            self.M = torch.nn.DataParallel(self.M, device_ids=self.gpus)
+            self.S = torch.nn.DataParallel(self.S, device_ids=self.gpus)
             
         self.G.to(self.device)
         self.D.to(self.device)

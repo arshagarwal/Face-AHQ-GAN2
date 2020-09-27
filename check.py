@@ -8,11 +8,8 @@ from PIL import Image
 import torch
 import os
 import random
+from data_loader import get_loader
 
 
-input=torch.randn((1,3,128,128))
-c = torch.tensor([[1.,0]])
-G=Generator(c_dim=2)
-x=G(input, c)
-x=G(x, c)
-print(x)
+x = torch.randn((1,2,3))
+print(x.shape[1:])

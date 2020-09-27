@@ -40,6 +40,7 @@ class Solver(object):
         self.mode = config.mode
         self.num_workers = config.num_workers
         self.gpus = config.gpus
+        self.upsample_type = config.upsample_type
 
         # Test configurations.
         self.test_iters = config.test_iters
@@ -176,8 +177,16 @@ class Solver(object):
         for i in range(len(iters)):
             if count <= iters[i]:
                 return i
+    def gen_fake(self, x_real, c_trg, load_idx):
+        """
+        generates fake images using progressive upsampling
+        """
+        x_fake = self.G(x_real, c_trg)
+        for i in range(1, load_idx+1):
+            x_fake = torch.nn.Upsample(scale_factor=2, mode=self.upsample_type)(x_fake)
+            x_fake = self.G(x_fake, c_trg)
 
-
+        return x_fake
 
     def train(self):
         """Progressive Training Loop."""
@@ -185,14 +194,10 @@ class Solver(object):
         loader = self.loader
         x_test = []
         y_test = []
-        # Fetch fixed inputs for debugging.
-        for i in range(len(loader)):
-            data_iter = iter(loader[i])
-            x_fixed, c_org = next(data_iter)
-            x_fixed = x_fixed.to(self.device)
-            c_fixed_list = self.create_labels(c_org, self.c_dim)
-            x_test.append(x_fixed)
-            y_test.append(c_fixed_list)
+
+        x_fixed, c_org = next(iter(loader[0]))
+        c_fixed_list = self.create_labels(c_org, self.c_dim)
+
 
         # Learning rate cache for decaying.
         g_lr = self.g_lr
@@ -217,10 +222,10 @@ class Solver(object):
             load_idx = self.get_loader_index(self.iters, i+1)
             # Fetch real images and labels.
             try:
-                x_real, label_org = next(data[load_idx])
+                x_real, label_org = next(data[0])
             except:
-                data[load_idx] = iter(loader[load_idx])
-                x_real, label_org = next(data[load_idx])
+                data[load_idx] = iter(loader[0])
+                x_real, label_org = next(data[0])
 
             #assert x_real.shape == (self.batch_size[load_idx], 3, self.img_size[load_idx], self.img_size[load_idx]),"check data loading image shape is {}".format(x_real.shape)
 
@@ -246,7 +251,13 @@ class Solver(object):
             d_loss_real = torch.mean(torch.nn.ReLU(inplace=True)(1-out_src))
 
             # Compute loss with fake images.
-            x_fake = self.G(x_real, c_trg)
+            #x_fake = self.G(x_real, c_trg)
+            x_fake = self.gen_fake(x_real, c_trg, load_idx)
+            assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), "check fake image " \
+                                                                                           "generation Expected: {} " \
+                                                                                           "Got {}".format((
+                self.img_size[load_idx],self.img_size[load_idx]),x_fake.shape)
+
             out_src = self.D(x_fake.detach(), label_trg)
             d_loss_fake = torch.mean(torch.nn.ReLU(inplace=True)(1+out_src))
 
@@ -268,7 +279,13 @@ class Solver(object):
             
             if (i+1) % self.n_critic == 0:
                 # Original-to-target domain.
-                x_fake = self.G(x_real, c_trg)
+                #x_fake = self.G(x_real, c_trg)
+                x_fake = self.gen_fake(x_real, c_trg, load_idx)
+                assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), "check fake image " \
+                                                                                               "generation Expected: {} " \
+                                                                                               "Got {}".format((
+                    self.img_size[load_idx], self.img_size[load_idx]), x_fake.shape)
+                
                 out_src = self.D(x_fake, label_trg)
                 g_loss_fake = - torch.mean(out_src)
 
@@ -301,17 +318,17 @@ class Solver(object):
 
             # Translate fixed images for debugging.
             if (i+1) % self.sample_step == 0:
-                for j in range(len(loader)):
-                    x_fixed = x_test[j]
-                    c_fixed_list = y_test[j]
-                    with torch.no_grad():
-                        x_fake_list = [x_fixed]
-                        for c_fixed in c_fixed_list:
-                            x_fake_list.append(self.G(x_fixed, c_fixed))
-                        x_concat = torch.cat(x_fake_list, dim=3)
-                        sample_path = os.path.join(self.sample_dir, '{}_{}-images.jpg'.format(i+1, self.img_size[j]))
-                        save_image(self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0)
-                        print('Saved real and fake images into {}...'.format(sample_path))
+
+                with torch.no_grad():
+                    x_fake_list = [x_fixed]
+                    for c_fixed in c_fixed_list:
+                        #x_fake_list.append(self.G(x_fixed, c_fixed))
+                        x_fake_list.append(self.gen_fake(x_fixed, c_fixed, len(self.img_size)-1))
+
+                    x_concat = torch.cat(x_fake_list, dim=3)
+                    sample_path = os.path.join(self.sample_dir, '{}-images.jpg'.format(i+1))
+                    save_image(self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0)
+                    print('Saved real and fake images into {}...'.format(sample_path))
 
             # Save model checkpoints.
             if (i+1) % self.model_save_step == 0:

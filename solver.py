@@ -301,7 +301,11 @@ class Solver(object):
                 g_loss_fake = - torch.mean(out_src)
 
                 # Target-to-original domain.
-                x_reconst = self.G(x_fake, c_org)
+                #x_reconst = self.G(x_fake, c_org)
+                x_gen_fake = torch.nn.functional.interpolate(x_fake,
+                                                 scale_factor=(self.img_size[0]/self.img_size[load_idx],self.img_size[0]/self.img_size[load_idx]),
+                                                 mode='bilinear',align_corners=True)
+                x_reconst = self.gen_fake(x_gen_fake, c_org, load_idx)
                 g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
 
                 # Backward and optimize.

@@ -9,7 +9,8 @@ import torch
 import os
 import random
 from data_loader import get_loader
+import torch.nn.functional
 
 
-x = torch.randn((1,2,3))
-print(x.shape[1:])
+x = torch.randn((1,3,128,128))
+print(torch.nn.functional.interpolate(x, scale_factor=(0.25, 0.25), mode='bilinear',align_corners=True).shape)

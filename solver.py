@@ -223,10 +223,15 @@ class Solver(object):
             load_idx = self.get_loader_index(self.iters, i+1)
             # Fetch real images and labels.
             try:
-                x_real, label_org = next(data[0])
+                x_real, label_org = next(data[load_idx])
             except:
-                data[load_idx] = iter(loader[0])
-                x_real, label_org = next(data[0])
+                data[load_idx] = iter(loader[load_idx])
+                x_real, label_org = next(data[load_idx])
+
+            x_gen = torch.nn.functional.interpolate(x_real, scale_factor=(self.img_size[0]/self.img_size[load_idx],self.img_size[0]/self.img_size[load_idx]) \
+                                                    , mode='bilinear',align_corners=True)
+
+            assert x_gen.shape[2:] == (self.img_size[0], self.img_size[0]),"check interpolation factor in x_gen"
 
             #assert x_real.shape == (self.batch_size[load_idx], 3, self.img_size[load_idx], self.img_size[load_idx]),"check data loading image shape is {}".format(x_real.shape)
 
@@ -238,6 +243,7 @@ class Solver(object):
             c_trg = self.label2onehot(label_trg, self.c_dim)
 
             x_real = x_real.to(self.device)           # Input images.
+            x_gen = x_gen.to(self.device)             # Generator inputs
             c_org = c_org.to(self.device)             # Original domain labels.
             c_trg = c_trg.to(self.device)             # Target domain labels.
             label_org = label_org.to(self.device)     # Labels for computing classification loss.
@@ -253,7 +259,7 @@ class Solver(object):
 
             # Compute loss with fake images.
             #x_fake = self.G(x_real, c_trg)
-            x_fake = self.gen_fake(x_real, c_trg, load_idx)
+            x_fake = self.gen_fake(x_gen, c_trg, load_idx)
             assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), "check fake image " \
                                                                                            "generation Expected: {} " \
                                                                                            "Got {}".format((
@@ -281,7 +287,7 @@ class Solver(object):
             if (i+1) % self.n_critic == 0:
                 # Original-to-target domain.
                 #x_fake = self.G(x_real, c_trg)
-                x_fake = self.gen_fake(x_real, c_trg, load_idx)
+                x_fake = self.gen_fake(x_gen, c_trg, load_idx)
                 assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), "check fake image " \
                                                                                                "generation Expected: {} " \
                                                                                                "Got {}".format((

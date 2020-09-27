@@ -197,6 +197,8 @@ class Solver(object):
 
         x_fixed, c_org = next(iter(loader[0]))
         c_fixed_list = self.create_labels(c_org, self.c_dim)
+        x_fixed = x_fixed.to(self.device)
+        c_fixed_list = c_fixed_list.to(self.device)
 
 
         # Learning rate cache for decaying.
@@ -285,7 +287,7 @@ class Solver(object):
                                                                                                "generation Expected: {} " \
                                                                                                "Got {}".format((
                     self.img_size[load_idx], self.img_size[load_idx]), x_fake.shape)
-                
+
                 out_src = self.D(x_fake, label_trg)
                 g_loss_fake = - torch.mean(out_src)
 

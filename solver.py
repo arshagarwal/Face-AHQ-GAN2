@@ -195,10 +195,14 @@ class Solver(object):
         x_test = []
         y_test = []
 
-        x_fixed, c_org = next(iter(loader[0]))
-        c_fixed_list = self.create_labels(c_org, self.c_dim)
-        x_fixed = x_fixed.to(self.device)
-
+        # Fetch fixed inputs for debugging.
+        for i in range(len(loader)):
+            data_iter = iter(loader[i])
+            x_fixed, c_org = next(data_iter)
+            x_fixed = x_fixed.to(self.device)
+            c_fixed_list = self.create_labels(c_org, self.c_dim)
+            x_test.append(x_fixed)
+            y_test.append(c_fixed_list)
 
         # Learning rate cache for decaying.
         g_lr = self.g_lr
@@ -324,18 +328,21 @@ class Solver(object):
                 print(log)
 
             # Translate fixed images for debugging.
-            if (i+1) % self.sample_step == 0:
-
-                with torch.no_grad():
-                    x_fake_list = [x_fixed]
-                    for c_fixed in c_fixed_list:
-                        #x_fake_list.append(self.G(x_fixed, c_fixed))
-                        x_fake_list.append(self.gen_fake(x_fixed, c_fixed, len(self.img_size)-1))
-
-                    x_concat = torch.cat(x_fake_list, dim=3)
-                    sample_path = os.path.join(self.sample_dir, '{}-images.jpg'.format(i+1))
-                    save_image(self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0)
-                    print('Saved real and fake images into {}...'.format(sample_path))
+            if (i + 1) % self.sample_step == 0:
+                for j in range(len(loader)):
+                    x_fixed = x_test[j]
+                    c_fixed_list = y_test[j]
+                    with torch.no_grad():
+                        x_fake_list = [x_fixed]
+                        for c_fixed in c_fixed_list:
+                            x_fixed = torch.nn.functional.interpolate(x_fixed, scale_factor=(self.img_size[0]/self.img_size[j],\
+                                                                                             self.img_size[0]/self.img_size[j]), mode='bilinear',\
+                                                                      align_corners=True)
+                            x_fake_list.append(self.G(x_fixed, c_fixed))
+                        x_concat = torch.cat(x_fake_list, dim=3)
+                        sample_path = os.path.join(self.sample_dir, '{}_{}-images.jpg'.format(i + 1, self.img_size[j]))
+                        save_image(self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0)
+                        print('Saved real and fake images into {}...'.format(sample_path))
 
             # Save model checkpoints.
             if (i+1) % self.model_save_step == 0:

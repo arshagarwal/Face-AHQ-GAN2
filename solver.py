@@ -333,11 +333,13 @@ class Solver(object):
                     x_fixed = x_test[j]
                     c_fixed_list = y_test[j]
                     with torch.no_grad():
-                        x_fake_list = [x_fixed]
+                        x_fake_list = [x_fixed.clone()]
+                        x_fixed = torch.nn.functional.interpolate(x_fixed,
+                                                                  scale_factor=(self.img_size[0] / self.img_size[j],
+                                                                                self.img_size[0] / self.img_size[j]),
+                                                                  mode='bilinear',
+                                                                  align_corners=True)
                         for c_fixed in c_fixed_list:
-                            x_fixed = torch.nn.functional.interpolate(x_fixed, scale_factor=(self.img_size[0]/self.img_size[j],\
-                                                                                             self.img_size[0]/self.img_size[j]), mode='bilinear',\
-                                                                      align_corners=True)
                             x_fake_list.append(self.G(x_fixed, c_fixed))
                         x_concat = torch.cat(x_fake_list, dim=3)
                         sample_path = os.path.join(self.sample_dir, '{}_{}-images.jpg'.format(i + 1, self.img_size[j]))

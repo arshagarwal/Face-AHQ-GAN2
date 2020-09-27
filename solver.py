@@ -198,7 +198,6 @@ class Solver(object):
         x_fixed, c_org = next(iter(loader[0]))
         c_fixed_list = self.create_labels(c_org, self.c_dim)
         x_fixed = x_fixed.to(self.device)
-        c_fixed_list = c_fixed_list.to(self.device)
 
 
         # Learning rate cache for decaying.

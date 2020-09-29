@@ -100,6 +100,15 @@ class Solver(object):
         self.G = Generator(img_size=self.img_size[0], style_dim=self.args.style_dim)
         self.D = Discriminator(img_size=self.img_size[0], num_domains=self.c_dim)
         self.M = MappingNetwork(self.args.latent_dim, self.args.style_dim, self.c_dim)
+        
+        if self.resume_iters == None:
+            print("initializing the networks")
+            he_init(self.G)
+            he_init(self.D)
+            he_init(self.M)
+
+        else:
+            self.restore_model(self.resume_iters)
 
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2], weight_decay=1e-4)
         self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2], weight_decay=1e-4)
@@ -109,11 +118,6 @@ class Solver(object):
         self.print_network(self.D, 'D')
         self.print_network(self.M, 'M')
 
-        if self.resume_iters == None:
-            print("initializing the networks")
-            he_init(self.G)
-            he_init(self.D)
-            he_init(self.M)
 
         if self.gpus != "0" and torch.cuda.is_available():
             self.gpus = self.gpus.split(',')
@@ -239,7 +243,7 @@ class Solver(object):
         start_iters = 0
         if self.resume_iters:
             start_iters = self.resume_iters
-            self.restore_model(self.resume_iters)
+            #self.restore_model(self.resume_iters)
 
         # Start training.
         print('Start training...')

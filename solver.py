@@ -227,6 +227,7 @@ class Solver(object):
             x_fixed, c_org = next(data_iter)
             x_fixed = x_fixed.to(self.device)
             #c_fixed_list = self.create_labels(c_org, self.c_dim)
+            c_org.to(self.device)
             x_test.append(x_fixed)
             y_test.append(c_org)
 
@@ -347,7 +348,7 @@ class Solver(object):
                     for k in range(len(loader)):
                         x_fake_list = [x_test[k]]
                         for j in range(self.c_dim):
-                            label = torch.ones((x_fixed.size(0),),dtype=torch.long).to(self.device)
+                            label = torch.ones((x_test[k].size(0),),dtype=torch.long).to(self.device)
                             label = label*j
                             x_gen = x_test[k].clone()
                             x_fake_list.append(self.gen_fake(x_gen, label, k))

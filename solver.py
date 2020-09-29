@@ -368,12 +368,14 @@ class Solver(object):
                 torch.save(self.M.state_dict(), M_path)
                 print('Saved model checkpoints into {}...'.format(self.model_save_dir))
 
+            """
             # Decay learning rates.
             if (i+1) % self.lr_update_step == 0 and (i+1) > (self.num_iters - self.num_iters_decay):
                 g_lr -= (self.g_lr / float(self.num_iters_decay))
                 d_lr -= (self.d_lr / float(self.num_iters_decay))
                 self.update_lr(g_lr, d_lr)
                 print ('Decayed learning rates, g_lr: {}, d_lr: {}.'.format(g_lr, d_lr))
+                """
 
 def he_init(module):
     if isinstance(module, nn.Conv2d):

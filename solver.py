@@ -100,7 +100,7 @@ class Solver(object):
         self.G = Generator(img_size=self.img_size[0], style_dim=self.args.style_dim)
         self.D = Discriminator(img_size=self.img_size[0], num_domains=self.c_dim)
         self.M = MappingNetwork(self.args.latent_dim, self.args.style_dim, self.c_dim)
-        
+
         if self.resume_iters == None:
             print("initializing the networks")
             he_init(self.G)

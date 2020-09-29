@@ -1,16 +1,12 @@
 import torch
 import torch.nn.utils.spectral_norm as SPN
 
-from torch.utils import data
-from torchvision import transforms as T
-from torchvision.datasets import ImageFolder
-from PIL import Image
-import torch
-import os
-import random
-from data_loader import get_loader
-import torch.nn.functional
+from model import Generator
 
-
-a=2
-print(a==None)
+G = Generator()
+"""x = torch.randn((1,3,128,128))
+s = torch.randn((1,64))
+x = G(x,s)
+torch.save(G.state_dict(),"g.ckpt")
+"""
+G.load_state_dict(torch.load('g.ckpt'))

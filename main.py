@@ -62,7 +62,7 @@ if __name__ == '__main__':
 
     # Style parameters
     parser.add_argument('--latent_dim', type=int, default=16, help='dimension of the latent vector used in mapping network')
-    parser.add_argument('--style_dim', type=int, default=16,
+    parser.add_argument('--style_dim', type=int, default=64,
                         help='dimension of the style vector returned by mapping network')
 
     # Progressive Training

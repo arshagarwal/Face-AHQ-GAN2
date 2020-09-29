@@ -45,8 +45,8 @@ if __name__ == '__main__':
     parser.add_argument('--g_repeat_num', type=int, default=6, help='number of residual blocks in G')
     parser.add_argument('--d_repeat_num', type=int, default=6, help='number of strided conv layers in D')
     parser.add_argument('--lambda_cls', type=float, default=1, help='weight for domain classification loss')
-    parser.add_argument('--lambda_rec', type=float, default=10, help='weight for reconstruction loss')
-    parser.add_argument('--lambda_gp', type=float, default=10, help='weight for gradient penalty')
+    parser.add_argument('--lambda_rec', type=float, default=1, help='weight for reconstruction loss')
+    parser.add_argument('--lambda_reg', type=float, default=1, help='weight for regularization loss')
     
     # Training configuration.
     #parser.add_argument('--dataset', type=str, default='RaFD', choices=['CelebA', 'RaFD', 'Both'])
@@ -54,11 +54,16 @@ if __name__ == '__main__':
     parser.add_argument('--g_lr', type=float, default=0.0001, help='learning rate for G')
     parser.add_argument('--d_lr', type=float, default=0.0001, help='learning rate for D')
     parser.add_argument('--n_critic', type=int, default=1, help='number of D updates per each G update')
-    parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for Adam optimizer')
+    parser.add_argument('--beta1', type=float, default=0.0, help='beta1 for Adam optimizer')
     parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam optimizer')
     parser.add_argument('--resume_iters', type=int, default=None, help='resume training from this step')
     parser.add_argument('--gpus', type=str, default='0', help="gpu id's to be used for training")
     parser.add_argument('--upsample_type', type=str, default='nearest', help='mode of upsampling')
+
+    # Style parameters
+    parser.add_argument('--latent_dim', type=int, default=16, help='dimension of the latent vector used in mapping network')
+    parser.add_argument('--style_dim', type=int, default=16,
+                        help='dimension of the style vector returned by mapping network')
 
     # Progressive Training
     parser.add_argument('--iters', type=str, default='5000,7500,12500', help='iters to be performed per image size')

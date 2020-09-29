@@ -1,9 +1,10 @@
 from model import Generator
-from model import Discriminator
+from model import Discriminator, MappingNetwork
 from data_loader import get_loader
 from torch.autograd import Variable
 from torchvision.utils import save_image
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import os
@@ -17,6 +18,7 @@ class Solver(object):
     def __init__(self, config):
         """Initialize configurations."""
 
+        self.args = config
 
         # Model configurations.
         self.c_dim = config.c_dim
@@ -98,24 +100,36 @@ class Solver(object):
     def build_model(self):
         """Create a generator and a discriminator."""
 
-        self.G = Generator(self.g_conv_dim, self.c_dim, self.g_repeat_num)
-        self.D = Discriminator(self.d_conv_dim, self.c_dim, self.d_repeat_num)
+        self.G = Generator(img_size=self.img_size[0], style_dim=self.args.style_dim)
+        self.D = Discriminator(img_size=self.img_size[0], num_domains=self.c_dim)
+        self.M = MappingNetwork(self.args.latent_dim, self.args.style_dim, self.c_dim)
 
-        self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2])
-        self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2])
+        self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2], weight_decay=1e-4)
+        self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2], weight_decay=1e-4)
+        self.m_optimizer = torch.optim.Adam(self.M.parameters(), 1e-6, [self.beta1, self.beta2], weight_decay=1e-4)
 
         self.print_network(self.G, 'G')
         self.print_network(self.D, 'D')
+        self.print_network(self.M, 'M')
+
+        if self.resume_iters == None:
+            print("initializing the networks")
+            he_init(self.G)
+            he_init(self.D)
+            he_init(self.M)
 
         if self.gpus != "0" and torch.cuda.is_available():
             self.gpus = self.gpus.split(',')
             self.gpus = [int(i) for i in self.gpus]
             self.G = torch.nn.DataParallel(self.G, device_ids=self.gpus)
             self.D = torch.nn.DataParallel(self.D, device_ids=self.gpus)
+            self.M = torch.nn.DataParallel(self.M, device_ids=self.gpus)
 
             
         self.G.to(self.device)
         self.D.to(self.device)
+        self.M.to(self.device)
+
 
     def print_network(self, model, name):
         """Print out the network information."""
@@ -131,9 +145,10 @@ class Solver(object):
         print('Loading the trained models from step {}...'.format(resume_iters))
         G_path = os.path.join(self.model_save_dir, '{}-G.ckpt'.format(resume_iters))
         D_path = os.path.join(self.model_save_dir, '{}-D.ckpt'.format(resume_iters))
+        M_path = os.path.join(self.model_save_dir, '{}-M.ckpt'.format(resume_iters))
         self.G.load_state_dict(torch.load(G_path, map_location=lambda storage, loc: storage))
         self.D.load_state_dict(torch.load(D_path, map_location=lambda storage, loc: storage))
-
+        self.M.load_state_dict(torch.load(M_path, map_location=lambda storage, loc: storage))
 
     def update_lr(self, g_lr, d_lr):
         """Decay learning rates of the generator and discriminator."""
@@ -146,6 +161,7 @@ class Solver(object):
         """Reset the gradient buffers."""
         self.g_optimizer.zero_grad()
         self.d_optimizer.zero_grad()
+        self.m_optimizer.zero_grad()
 
     def denorm(self, x):
         """Convert the range from [-1, 1] to [0, 1]."""
@@ -177,14 +193,27 @@ class Solver(object):
         for i in range(len(iters)):
             if count <= iters[i]:
                 return i
-    def gen_fake(self, x_real, c_trg, load_idx):
+    def gen_fake(self, x_real, label_trg, load_idx):
         """
         generates fake images using progressive upsampling
         """
-        x_fake = self.G(x_real, c_trg)
+        x_gen = torch.nn.functional.interpolate(x_real,
+                                                    scale_factor=(self.img_size[0]/self.img_size[load_idx],
+                                                                  self.img_size[0]/self.img_size[load_idx]),
+                                                    mode='bilinear',align_corners=True)
+        assert x_gen.shape[2:] == (self.img_size[0], self.img_size[0]), "check interpolation factor in x_gen"
+
+        z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
+        s_trg = self.M(z, label_trg)
+        x_fake = self.G(x_gen, s_trg)
         for i in range(1, load_idx+1):
             x_fake = torch.nn.Upsample(scale_factor=2, mode=self.upsample_type)(x_fake)
-            x_fake = self.G(x_fake, c_trg)
+            """
+            Experiment later
+            z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
+            s_trg = self.M(z, label_trg)
+            """
+            x_fake = self.G(x_fake, s_trg)
 
         return x_fake
 
@@ -200,9 +229,9 @@ class Solver(object):
             data_iter = iter(loader[i])
             x_fixed, c_org = next(data_iter)
             x_fixed = x_fixed.to(self.device)
-            c_fixed_list = self.create_labels(c_org, self.c_dim)
+            #c_fixed_list = self.create_labels(c_org, self.c_dim)
             x_test.append(x_fixed)
-            y_test.append(c_fixed_list)
+            y_test.append(c_org)
 
         # Learning rate cache for decaying.
         g_lr = self.g_lr
@@ -232,24 +261,11 @@ class Solver(object):
                 data[load_idx] = iter(loader[load_idx])
                 x_real, label_org = next(data[load_idx])
 
-            x_gen = torch.nn.functional.interpolate(x_real, scale_factor=(self.img_size[0]/self.img_size[load_idx],self.img_size[0]/self.img_size[load_idx]) \
-                                                    , mode='bilinear',align_corners=True)
-
-            assert x_gen.shape[2:] == (self.img_size[0], self.img_size[0]),"check interpolation factor in x_gen"
-
-            #assert x_real.shape == (self.batch_size[load_idx], 3, self.img_size[load_idx], self.img_size[load_idx]),"check data loading image shape is {}".format(x_real.shape)
-
             # Generate target domain labels randomly.
             rand_idx = torch.randperm(label_org.size(0))
             label_trg = label_org[rand_idx]
 
-            c_org = self.label2onehot(label_org, self.c_dim)
-            c_trg = self.label2onehot(label_trg, self.c_dim)
-
             x_real = x_real.to(self.device)           # Input images.
-            x_gen = x_gen.to(self.device)             # Generator inputs
-            c_org = c_org.to(self.device)             # Original domain labels.
-            c_trg = c_trg.to(self.device)             # Target domain labels.
             label_org = label_org.to(self.device)     # Labels for computing classification loss.
             label_trg = label_trg.to(self.device)     # Labels for computing classification loss.
 
@@ -258,23 +274,24 @@ class Solver(object):
             # =================================================================================== #
 
             # Compute loss with real images.
+            x_real.requires_grad_()
             out_src = self.D(x_real, label_org)
             d_loss_real = torch.mean(torch.nn.ReLU(inplace=True)(1-out_src))
+            d_loss_reg = r1_reg(out_src, x_real)
 
             # Compute loss with fake images.
             #x_fake = self.G(x_real, c_trg)
-            x_fake = self.gen_fake(x_gen, c_trg, load_idx)
-            assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), "check fake image " \
-                                                                                           "generation Expected: {} " \
-                                                                                           "Got {}".format((
-                self.img_size[load_idx],self.img_size[load_idx]),x_fake.shape)
+            x_fake = self.gen_fake(x_real, label_trg, load_idx)
+
+            assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), \
+                "check fake image generation Expected: {} Got {}".format(\
+                    (self.img_size[load_idx],self.img_size[load_idx]), x_fake.shape[2:])
 
             out_src = self.D(x_fake.detach(), label_trg)
             d_loss_fake = torch.mean(torch.nn.ReLU(inplace=True)(1+out_src))
 
-
             # Backward and optimize.
-            d_loss = d_loss_real + d_loss_fake
+            d_loss = d_loss_real + d_loss_fake + self.args.lambda_reg*d_loss_reg
             self.reset_grad()
             d_loss.backward()
             self.d_optimizer.step()
@@ -290,22 +307,17 @@ class Solver(object):
             
             if (i+1) % self.n_critic == 0:
                 # Original-to-target domain.
-                #x_fake = self.G(x_real, c_trg)
-                x_fake = self.gen_fake(x_gen, c_trg, load_idx)
-                assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), "check fake image " \
-                                                                                               "generation Expected: {} " \
-                                                                                               "Got {}".format((
-                    self.img_size[load_idx], self.img_size[load_idx]), x_fake.shape)
+                x_fake = self.gen_fake(x_real, label_trg, load_idx)
+
+                assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), \
+                    "check fake image generation Expected: {} Got {}".format((
+                    self.img_size[load_idx], self.img_size[load_idx]), x_fake.shape[2:])
 
                 out_src = self.D(x_fake, label_trg)
                 g_loss_fake = - torch.mean(out_src)
 
                 # Target-to-original domain.
-                #x_reconst = self.G(x_fake, c_org)
-                x_gen_fake = torch.nn.functional.interpolate(x_fake,
-                                                 scale_factor=(self.img_size[0]/self.img_size[load_idx],self.img_size[0]/self.img_size[load_idx]),
-                                                 mode='bilinear',align_corners=True)
-                x_reconst = self.gen_fake(x_gen_fake, c_org, load_idx)
+                x_reconst = self.gen_fake(x_fake, label_org, load_idx)
                 g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
 
                 # Backward and optimize.
@@ -313,6 +325,7 @@ class Solver(object):
                 self.reset_grad()
                 g_loss.backward()
                 self.g_optimizer.step()
+                self.m_optimizer.step()
 
                 # Logging.
                 loss['G/loss_fake'] = g_loss_fake.item()
@@ -332,22 +345,17 @@ class Solver(object):
                 print(log)
 
             # Translate fixed images for debugging.
-            if (i + 1) % self.sample_step == 0:
-                for j in range(len(loader)):
-                    x_fixed = x_test[j]
-                    c_fixed_list = y_test[j]
-                    with torch.no_grad():
-                        x_fake_list = [x_fixed.clone()]
-                        x_fixed = torch.nn.functional.interpolate(x_fixed,
-                                                                  scale_factor=(self.img_size[0] / self.img_size[j],
-                                                                                self.img_size[0] / self.img_size[j]),
-                                                                  mode='bilinear',
-                                                                  align_corners=True)
-                        for c_fixed in c_fixed_list:
-                            #x_fake_list.append(self.G(x_fixed, c_fixed))
-                            x_fake_list.append(self.gen_fake(x_fixed, c_fixed, j))
+            if (i+1) % self.sample_step == 0:
+                with torch.no_grad():
+                    for k in range(len(loader)):
+                        x_fake_list = [x_test[k]]
+                        for j in range(self.c_dim):
+                            label = torch.ones((x_fixed.size(0),),dtype=torch.long).to(self.device)
+                            label = label*j
+                            x_gen = x_test[k].clone()
+                            x_fake_list.append(self.gen_fake(x_gen, label, k))
                         x_concat = torch.cat(x_fake_list, dim=3)
-                        sample_path = os.path.join(self.sample_dir, '{}_{}-images.jpg'.format(i + 1, self.img_size[j]))
+                        sample_path = os.path.join('samples', '{}_{}images.jpg'.format(i+1, self.img_size[k]))
                         save_image(self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0)
                         print('Saved real and fake images into {}...'.format(sample_path))
 
@@ -355,8 +363,11 @@ class Solver(object):
             if (i+1) % self.model_save_step == 0:
                 G_path = os.path.join(self.model_save_dir, '{}-G.ckpt'.format(i+1))
                 D_path = os.path.join(self.model_save_dir, '{}-D.ckpt'.format(i+1))
+                M_path = os.path.join(self.model_save_dir, '{}-M.ckpt'.format(i + 1))
+
                 torch.save(self.G.state_dict(), G_path)
                 torch.save(self.D.state_dict(), D_path)
+                torch.save(self.M.state_dict(), M_path)
                 print('Saved model checkpoints into {}...'.format(self.model_save_dir))
 
             # Decay learning rates.
@@ -366,33 +377,25 @@ class Solver(object):
                 self.update_lr(g_lr, d_lr)
                 print ('Decayed learning rates, g_lr: {}, d_lr: {}.'.format(g_lr, d_lr))
 
+def he_init(module):
+    if isinstance(module, nn.Conv2d):
+        nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
+        if module.bias is not None:
+            nn.init.constant_(module.bias, 0)
+    if isinstance(module, nn.Linear):
+        nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
+        if module.bias is not None:
+            nn.init.constant_(module.bias, 0)
 
 
-    def test(self):
-        """Translate images using StarGAN trained on a single dataset."""
-        # Load the trained generator.
-        self.restore_model(self.test_iters)
-        
-        # Set data loader.
-        if self.dataset == 'CelebA':
-            data_loader = self.celeba_loader
-        elif self.dataset == 'RaFD':
-            data_loader = self.rafd_loader
-        
-        with torch.no_grad():
-            for i, (x_real, c_org) in enumerate(data_loader):
-
-                # Prepare input images and target domain labels.
-                x_real = x_real.to(self.device)
-                c_trg_list = self.create_labels(c_org, self.c_dim, self.dataset, self.selected_attrs)
-
-                # Translate images.
-                x_fake_list = [x_real]
-                for c_trg in c_trg_list:
-                    x_fake_list.append(self.G(x_real, c_trg))
-
-                # Save the translated images.
-                x_concat = torch.cat(x_fake_list, dim=3)
-                result_path = os.path.join(self.result_dir, '{}-images.jpg'.format(i+1))
-                save_image(self.denorm(x_concat.data.cpu()), result_path, nrow=1, padding=0)
-                print('Saved real and fake images into {}...'.format(result_path))
+def r1_reg(d_out, x_in):
+    # zero-centered gradient penalty for real images
+    batch_size = x_in.size(0)
+    grad_dout = torch.autograd.grad(
+        outputs=d_out.sum(), inputs=x_in,
+        create_graph=True, retain_graph=True, only_inputs=True
+    )[0]
+    grad_dout2 = grad_dout.pow(2)
+    assert(grad_dout2.size() == x_in.size())
+    reg = 0.5 * grad_dout2.view(batch_size, -1).sum(1).mean(0)
+    return reg

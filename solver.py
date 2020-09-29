@@ -352,7 +352,7 @@ class Solver(object):
                             x_gen = x_test[k].clone()
                             x_fake_list.append(self.gen_fake(x_gen, label, k))
                         x_concat = torch.cat(x_fake_list, dim=3)
-                        sample_path = os.path.join('samples', '{}_{}images.jpg'.format(i+1, self.img_size[k]))
+                        sample_path = os.path.join(self.sample_dir, '{}_{}images.jpg'.format(i+1, self.img_size[k]))
                         save_image(self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0)
                         print('Saved real and fake images into {}...'.format(sample_path))
 

@@ -28,11 +28,9 @@ class Solver(object):
         self.d_repeat_num = config.d_repeat_num
         self.lambda_cls = config.lambda_cls
         self.lambda_rec = config.lambda_rec
-        self.lambda_gp = config.lambda_gp
 
         # Training configurations.
         self.num_iters = int(config.iters.split(',')[-1])
-        self.num_iters_decay = config.num_iters_decay
         self.g_lr = config.g_lr
         self.d_lr = config.d_lr
         self.n_critic = config.n_critic
@@ -48,7 +46,6 @@ class Solver(object):
         self.test_iters = config.test_iters
 
         # Miscellaneous.
-        self.use_tensorboard = config.use_tensorboard
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # Directories.

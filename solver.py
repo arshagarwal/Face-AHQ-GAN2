@@ -92,23 +92,24 @@ class Solver(object):
 
         return loaders
 
-
-
     def build_model(self):
         """Create a generator and a discriminator."""
 
         self.G = Generator(img_size=self.img_size[0], style_dim=self.args.style_dim)
         self.D = Discriminator(img_size=self.img_size[0], num_domains=self.c_dim)
         self.M = MappingNetwork(self.args.latent_dim, self.args.style_dim, self.c_dim)
-        self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2], weight_decay=1e-4)
-        self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2], weight_decay=1e-4)
-        self.m_optimizer = torch.optim.Adam(self.M.parameters(), 1e-6, [self.beta1, self.beta2], weight_decay=1e-4)
 
         if self.resume_iters == None:
             print("initializing the networks")
             he_init(self.G)
             he_init(self.D)
             he_init(self.M)
+            self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2],
+                                                weight_decay=1e-4)
+            self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2],
+                                                weight_decay=1e-4)
+            self.m_optimizer = torch.optim.Adam(self.M.parameters(), 1e-6, [self.beta1, self.beta2], weight_decay=1e-4)
+            self.add_to_device()
 
         else:
             self.restore_model(self.resume_iters)
@@ -117,6 +118,7 @@ class Solver(object):
         self.print_network(self.D, 'D')
         self.print_network(self.M, 'M')
 
+    def add_to_device(self):
 
         if self.gpus != "0" and torch.cuda.is_available():
             self.gpus = self.gpus.split(',')
@@ -125,7 +127,6 @@ class Solver(object):
             self.D = torch.nn.DataParallel(self.D, device_ids=self.gpus)
             self.M = torch.nn.DataParallel(self.M, device_ids=self.gpus)
 
-            
         self.G.to(self.device)
         self.D.to(self.device)
         self.M.to(self.device)
@@ -146,11 +147,15 @@ class Solver(object):
         G_path = os.path.join(self.model_save_dir, '{}-G.ckpt'.format(resume_iters))
         D_path = os.path.join(self.model_save_dir, '{}-D.ckpt'.format(resume_iters))
         M_path = os.path.join(self.model_save_dir, '{}-M.ckpt'.format(resume_iters))
-        self.G.load_state_dict(torch.load(G_path, map_location=lambda storage, loc: storage))
-        self.D.load_state_dict(torch.load(D_path, map_location=lambda storage, loc: storage))
-        self.M.load_state_dict(torch.load(M_path, map_location=lambda storage, loc: storage))
+        self.G.load_state_dict(torch.load(G_path))
+        self.D.load_state_dict(torch.load(D_path))
+        self.M.load_state_dict(torch.load(M_path))
+        self.add_to_device()
 
         # loading the optimizer
+        self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2], weight_decay=1e-4)
+        self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2], weight_decay=1e-4)
+        self.m_optimizer = torch.optim.Adam(self.M.parameters(), 1e-6, [self.beta1, self.beta2], weight_decay=1e-4)
         opt_path = self.model_save_dir + "{}-opt.ckpt".format(resume_iters)
         opt_ckpt = torch.load(opt_path)
         self.g_optimizer.load_state_dict(opt_ckpt['g_optim'])
@@ -239,7 +244,7 @@ class Solver(object):
                 x_fake = self.G(x_fake, s_trg)
 
             return x_fake
-        
+
         else:
             raise ValueError("pro_type should be in [pro1, pro2]")
 

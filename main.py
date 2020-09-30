@@ -69,6 +69,7 @@ if __name__ == '__main__':
     parser.add_argument('--iters', type=str, default='5000,7500,12500', help='iters to be performed per image size')
     parser.add_argument('--batch_size', type=str, default='128,64,32', help='batch size per image size')
     parser.add_argument('--img_size', type=str, default='64,128,256', help='image sizes to be used')
+    parser.add_argument('--pro_type', type=str, default='pro1', help='type of progressive training to be used from [pro1 | pro2]')
 
     # Test configuration.
     parser.add_argument('--test_iters', type=int, default=200000, help='test model from this step')

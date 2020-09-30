@@ -100,6 +100,9 @@ class Solver(object):
         self.G = Generator(img_size=self.img_size[0], style_dim=self.args.style_dim)
         self.D = Discriminator(img_size=self.img_size[0], num_domains=self.c_dim)
         self.M = MappingNetwork(self.args.latent_dim, self.args.style_dim, self.c_dim)
+        self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2], weight_decay=1e-4)
+        self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2], weight_decay=1e-4)
+        self.m_optimizer = torch.optim.Adam(self.M.parameters(), 1e-6, [self.beta1, self.beta2], weight_decay=1e-4)
 
         if self.resume_iters == None:
             print("initializing the networks")
@@ -110,9 +113,7 @@ class Solver(object):
         else:
             self.restore_model(self.resume_iters)
 
-        self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2], weight_decay=1e-4)
-        self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2], weight_decay=1e-4)
-        self.m_optimizer = torch.optim.Adam(self.M.parameters(), 1e-6, [self.beta1, self.beta2], weight_decay=1e-4)
+
 
         self.print_network(self.G, 'G')
         self.print_network(self.D, 'D')
@@ -150,6 +151,15 @@ class Solver(object):
         self.G.load_state_dict(torch.load(G_path, map_location=lambda storage, loc: storage))
         self.D.load_state_dict(torch.load(D_path, map_location=lambda storage, loc: storage))
         self.M.load_state_dict(torch.load(M_path, map_location=lambda storage, loc: storage))
+
+        # loading the optimizer
+        opt_path = self.model_save_dir + "{}-opt.ckpt".format(resume_iters)
+        opt_ckpt = torch.load(opt_path)
+        self.g_optimizer.load_state_dict(opt_ckpt['g_optim'])
+        self.d_optimizer.load_state_dict(opt_ckpt['d_optim'])
+        self.m_optimizer.load_state_dict(opt_ckpt['m_optim'])
+
+        print('loaded optim checkpoints successfully')
 
     def update_lr(self, g_lr, d_lr):
         """Decay learning rates of the generator and discriminator."""
@@ -198,25 +208,39 @@ class Solver(object):
         """
         generates fake images using progressive upsampling
         """
-        x_gen = torch.nn.functional.interpolate(x_real,
-                                                    scale_factor=(self.img_size[0]/self.img_size[load_idx],
-                                                                  self.img_size[0]/self.img_size[load_idx]),
-                                                    mode='bilinear',align_corners=True)
-        assert x_gen.shape[2:] == (self.img_size[0], self.img_size[0]), "check interpolation factor in x_gen"
-
-        z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
-        s_trg = self.M(z, label_trg)
-        x_fake = self.G(x_gen, s_trg)
-        for i in range(1, load_idx+1):
-            x_fake = torch.nn.Upsample(scale_factor=2, mode=self.upsample_type)(x_fake)
-            """
-            Experiment later
+        # Multi scale generation (fake progressive)
+        if self.args.pro_type == 'pro1':
             z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
             s_trg = self.M(z, label_trg)
-            """
-            x_fake = self.G(x_fake, s_trg)
+            x_fake = self.G(x_real, s_trg)
 
-        return x_fake
+        # progressive up sampling
+        elif self.args.pro_type == 'pro2':
+            if load_idx > 0:
+                x_gen = torch.nn.functional.interpolate(x_real,
+                                                            scale_factor=(self.img_size[0]/self.img_size[load_idx],
+                                                                          self.img_size[0]/self.img_size[load_idx]),
+                                                            mode='bilinear',align_corners=True)
+            else:
+                x_gen = x_real
+
+            assert x_gen.shape[2:] == (self.img_size[0], self.img_size[0]), "check interpolation factor in x_gen"
+
+            z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
+            s_trg = self.M(z, label_trg)
+            x_fake = self.G(x_gen, s_trg)
+            for i in range(1, load_idx+1):
+                x_fake = torch.nn.Upsample(scale_factor=2, mode=self.upsample_type)(x_fake)
+                """
+                Experiment later
+                z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
+                s_trg = self.M(z, label_trg)
+                """
+                x_fake = self.G(x_fake, s_trg)
+        else:
+            raise ValueError("pro_type should be in [pro1, pro2]")
+
+            return x_fake
 
     def train(self):
         """Progressive Training Loop."""
@@ -370,6 +394,13 @@ class Solver(object):
                 torch.save(self.G.state_dict(), G_path)
                 torch.save(self.D.state_dict(), D_path)
                 torch.save(self.M.state_dict(), M_path)
+
+                opt_path = self.model_save_dir + "{}-opt.ckpt".format(i+1)
+                torch.save({
+                    'g_optim': self.g_optimizer.state_dict(),
+                    'd_optim': self.d_optimizer.state_dict(),
+                    'm_optim': self.m_optimizer.state_dict()
+                }, opt_path)
                 print('Saved model checkpoints into {}...'.format(self.model_save_dir))
 
             """

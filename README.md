@@ -7,7 +7,7 @@
 3. Build the image using `docker build -f docker -t slimgan:gpu`.
 4. Run the Container using `docker run --gpus all --shm-size 10G -it slimgan:gpu`.
 5.Run the `nvidia-smi` to check if gpus work.   
-6. Run thr command `python main.py --rafd_image_dir Big_slim --num_iters 30000 --sample_step 500 --c_dim 2 --log_step 100 --model_save_step 5000 --batch_size 64 --n_critic 2 --rafd_crop_size 128 --image_size 128 --resume_iters 20000 --num_workers 5`.
+6. Run the command `python main.py --img_dir ../data/celeba_hq/train --iters 20000,60000,100000 --img_size 128,256,512 --batch_size 16,8,2 --gpus 0,1 --c_dim 2 --num_workers 5`.
 
 
 ## Steps to run the code on Google colab (just 3 lines of code):

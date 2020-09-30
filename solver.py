@@ -104,12 +104,13 @@ class Solver(object):
             he_init(self.G)
             he_init(self.D)
             he_init(self.M)
+            self.add_to_device()
             self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2],
                                                 weight_decay=1e-4)
             self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2],
                                                 weight_decay=1e-4)
             self.m_optimizer = torch.optim.Adam(self.M.parameters(), 1e-6, [self.beta1, self.beta2], weight_decay=1e-4)
-            self.add_to_device()
+
 
         else:
             self.restore_model(self.resume_iters)

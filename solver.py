@@ -113,8 +113,6 @@ class Solver(object):
         else:
             self.restore_model(self.resume_iters)
 
-
-
         self.print_network(self.G, 'G')
         self.print_network(self.D, 'D')
         self.print_network(self.M, 'M')
@@ -214,6 +212,8 @@ class Solver(object):
             s_trg = self.M(z, label_trg)
             x_fake = self.G(x_real, s_trg)
 
+            return x_fake
+
         # progressive up sampling
         elif self.args.pro_type == 'pro2':
             if load_idx > 0:
@@ -237,10 +237,13 @@ class Solver(object):
                 s_trg = self.M(z, label_trg)
                 """
                 x_fake = self.G(x_fake, s_trg)
+
+            return x_fake
+        
         else:
             raise ValueError("pro_type should be in [pro1, pro2]")
 
-            return x_fake
+
 
     def train(self):
         """Progressive Training Loop."""
@@ -317,7 +320,7 @@ class Solver(object):
             d_loss_fake = torch.mean(torch.nn.ReLU(inplace=True)(1+out_src))
 
             # Backward and optimize.
-            d_loss = d_loss_real + d_loss_fake + self.args.lambda_reg*d_loss_reg
+            d_loss = d_loss_real + d_loss_fake + self.args.lambda_reg * d_loss_reg
             self.reset_grad()
             d_loss.backward()
             self.d_optimizer.step()

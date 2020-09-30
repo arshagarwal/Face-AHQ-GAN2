@@ -148,10 +148,11 @@ class Solver(object):
         G_path = os.path.join(self.model_save_dir, '{}-G.ckpt'.format(resume_iters))
         D_path = os.path.join(self.model_save_dir, '{}-D.ckpt'.format(resume_iters))
         M_path = os.path.join(self.model_save_dir, '{}-M.ckpt'.format(resume_iters))
+        self.add_to_device()
         self.G.load_state_dict(torch.load(G_path))
         self.D.load_state_dict(torch.load(D_path))
         self.M.load_state_dict(torch.load(M_path))
-        self.add_to_device()
+       # self.add_to_device()
 
         # loading the optimizer
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2], weight_decay=1e-4)

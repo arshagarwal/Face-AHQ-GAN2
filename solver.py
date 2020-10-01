@@ -10,6 +10,7 @@ import numpy as np
 import os
 import time
 import datetime
+import copy
 
 
 class Solver(object):
@@ -99,6 +100,9 @@ class Solver(object):
         self.D = Discriminator(img_size=self.img_size[0], num_domains=self.c_dim)
         self.M = MappingNetwork(self.args.latent_dim, self.args.style_dim, self.c_dim)
 
+        self.G_ema = copy.deepcopy(self.G)
+        self.M_ema = copy.deepcopy(self.M)
+
         if self.resume_iters == None:
             print("initializing the networks")
             he_init(self.G)
@@ -128,9 +132,17 @@ class Solver(object):
             self.D = torch.nn.DataParallel(self.D, device_ids=self.gpus)
             self.M = torch.nn.DataParallel(self.M, device_ids=self.gpus)
 
+            self.G_ema = torch.nn.DataParallel(self.G_ema, device_ids=self.gpus)
+            self.M_ema = torch.nn.DataParallel(self.M_ema, device_ids=self.gpus)
+
         self.G.to(self.device)
         self.D.to(self.device)
         self.M.to(self.device)
+
+        self.G_ema.to(self.device)
+        self.M_ema.to(self.device)
+
+
 
 
     def print_network(self, model, name):
@@ -152,13 +164,18 @@ class Solver(object):
         self.G.load_state_dict(torch.load(G_path))
         self.D.load_state_dict(torch.load(D_path))
         self.M.load_state_dict(torch.load(M_path))
-       # self.add_to_device()
+
+        ema_path = self.model_save_dir + "/{}-ema.ckpt".format(resume_iters)
+        ema_ckpt = torch.load(ema_path)
+        self.G_ema.load_state_dict(ema_ckpt['G'])
+        self.M_ema.load_state_dict(ema_ckpt['M'])
+
 
         # loading the optimizer
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2], weight_decay=1e-4)
         self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2], weight_decay=1e-4)
         self.m_optimizer = torch.optim.Adam(self.M.parameters(), 1e-6, [self.beta1, self.beta2], weight_decay=1e-4)
-        opt_path = self.model_save_dir + "{}-opt.ckpt".format(resume_iters)
+        opt_path = self.model_save_dir + "/{}-opt.ckpt".format(resume_iters)
         opt_ckpt = torch.load(opt_path)
         self.g_optimizer.load_state_dict(opt_ckpt['g_optim'])
         self.d_optimizer.load_state_dict(opt_ckpt['d_optim'])
@@ -209,15 +226,15 @@ class Solver(object):
         for i in range(len(iters)):
             if count <= iters[i]:
                 return i
-    def gen_fake(self, x_real, label_trg, load_idx):
+    def gen_fake(self, x_real, label_trg, load_idx, G, M):
         """
         generates fake images using progressive upsampling
         """
         # Multi scale generation (fake progressive)
         if self.args.pro_type == 'pro1':
             z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
-            s_trg = self.M(z, label_trg)
-            x_fake = self.G(x_real, s_trg)
+            s_trg = M(z, label_trg)
+            x_fake = G(x_real, s_trg)
 
             return x_fake
 
@@ -234,8 +251,8 @@ class Solver(object):
             assert x_gen.shape[2:] == (self.img_size[0], self.img_size[0]), "check interpolation factor in x_gen"
 
             z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
-            s_trg = self.M(z, label_trg)
-            x_fake = self.G(x_gen, s_trg)
+            s_trg = M(z, label_trg)
+            x_fake = G(x_gen, s_trg)
             for i in range(1, load_idx+1):
                 x_fake = torch.nn.Upsample(scale_factor=2, mode=self.upsample_type)(x_fake)
                 """
@@ -243,7 +260,7 @@ class Solver(object):
                 z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
                 s_trg = self.M(z, label_trg)
                 """
-                x_fake = self.G(x_fake, s_trg)
+                x_fake = G(x_fake, s_trg)
 
             return x_fake
 
@@ -317,7 +334,7 @@ class Solver(object):
 
             # Compute loss with fake images.
             #x_fake = self.G(x_real, c_trg)
-            x_fake = self.gen_fake(x_real, label_trg, load_idx)
+            x_fake = self.gen_fake(x_real, label_trg, load_idx, self.G, self.M)
 
             assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), \
                 "check fake image generation Expected: {} Got {}".format(\
@@ -343,7 +360,7 @@ class Solver(object):
             
             if (i+1) % self.n_critic == 0:
                 # Original-to-target domain.
-                x_fake = self.gen_fake(x_real, label_trg, load_idx)
+                x_fake = self.gen_fake(x_real, label_trg, load_idx, self.G, self.M)
 
                 assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), \
                     "check fake image generation Expected: {} Got {}".format((
@@ -353,7 +370,7 @@ class Solver(object):
                 g_loss_fake = - torch.mean(out_src)
 
                 # Target-to-original domain.
-                x_reconst = self.gen_fake(x_fake, label_org, load_idx)
+                x_reconst = self.gen_fake(x_fake, label_org, load_idx, self.G, self.M)
                 g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
 
                 # Backward and optimize.
@@ -366,6 +383,10 @@ class Solver(object):
                 # Logging.
                 loss['G/loss_fake'] = g_loss_fake.item()
                 loss['G/loss_rec'] = g_loss_rec.item()
+
+                #calculating moving averages for generator nnetwork
+                moving_average(self.G, self.G_ema)
+                moving_average(self.M, self.M_ema)
 
             # =================================================================================== #
             #                                 4. Miscellaneous                                    #
@@ -389,7 +410,7 @@ class Solver(object):
                             label = torch.ones((x_test[k].size(0),),dtype=torch.long).to(self.device)
                             label = label*j
                             x_gen = x_test[k].clone()
-                            x_fake_list.append(self.gen_fake(x_gen, label, k))
+                            x_fake_list.append(self.gen_fake(x_gen, label, k, self.G_ema, self.M_ema))
                         x_concat = torch.cat(x_fake_list, dim=3)
                         sample_path = os.path.join(self.sample_dir, '{}_{}images.jpg'.format(i+1, self.img_size[k]))
                         save_image(self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0)
@@ -405,12 +426,18 @@ class Solver(object):
                 torch.save(self.D.state_dict(), D_path)
                 torch.save(self.M.state_dict(), M_path)
 
-                opt_path = self.model_save_dir + "{}-opt.ckpt".format(i+1)
+                opt_path = self.model_save_dir + "/{}-opt.ckpt".format(i+1)
                 torch.save({
                     'g_optim': self.g_optimizer.state_dict(),
                     'd_optim': self.d_optimizer.state_dict(),
                     'm_optim': self.m_optimizer.state_dict()
                 }, opt_path)
+
+                ema_path = self.model_save_dir + "/{}-ema.ckpt".format(i+1)
+                torch.save({
+                    'G': self.G_ema.state_dict(),
+                    'M': self.M_ema.state_dict()
+                }, ema_path)
                 print('Saved model checkpoints into {}...'.format(self.model_save_dir))
 
             """
@@ -444,3 +471,8 @@ def r1_reg(d_out, x_in):
     assert(grad_dout2.size() == x_in.size())
     reg = 0.5 * grad_dout2.view(batch_size, -1).sum(1).mean(0)
     return reg
+
+
+def moving_average(model, model_test, beta=0.999):
+    for param, param_test in zip(model.parameters(), model_test.parameters()):
+        param_test.data = torch.lerp(param.data, param_test.data, beta)

@@ -168,7 +168,7 @@ class Solver(object):
         ema_path = self.model_save_dir + "/{}-ema.ckpt".format(resume_iters)
         ema_ckpt = torch.load(ema_path)
         self.G_ema.load_state_dict(ema_ckpt['G'])
-        self.M_ema.load_state_dict(ema_ckpt['D'])
+        self.M_ema.load_state_dict(ema_ckpt['M'])
 
 
         # loading the optimizer

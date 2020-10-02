@@ -230,7 +230,8 @@ class Solver(object):
 
         total_iters = (self.iters[load_idx] - self.iters[load_idx-1]) if load_idx > 0 else self.iters[load_idx]
         curr_iters = (iters - self.iters[load_idx]) if load_idx > 0 else iters
-        alpha = (curr_iters/total_iters) * self.args.fade_point
+        alpha = (curr_iters/(total_iters * self.args.fade_point))
+        alpha = alpha if alpha <= 1 else 1
         alpha = torch.tensor(alpha).to(self.device)
         return alpha
 

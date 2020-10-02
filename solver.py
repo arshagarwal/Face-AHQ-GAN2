@@ -310,7 +310,7 @@ class Solver(object):
 
             # Compute loss with fake images.
             #x_fake = self.G(x_real, c_trg)
-            x_fake = self.gen_fake(x_real, label_trg, load_idx, self.G, self.M)
+            x_fake = self.gen_fake(x_real, label_trg, load_idx, self.G, self.M, i+1)
 
             assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), \
                 "check fake image generation Expected: {} Got {}".format(\
@@ -336,7 +336,7 @@ class Solver(object):
             
             if (i+1) % self.n_critic == 0:
                 # Original-to-target domain.
-                x_fake = self.gen_fake(x_real, label_trg, load_idx, self.G, self.M)
+                x_fake = self.gen_fake(x_real, label_trg, load_idx, self.G, self.M, i+1)
 
                 assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), \
                     "check fake image generation Expected: {} Got {}".format((
@@ -346,7 +346,7 @@ class Solver(object):
                 g_loss_fake = - torch.mean(out_src)
 
                 # Target-to-original domain.
-                x_reconst = self.gen_fake(x_fake, label_org, load_idx, self.G, self.M)
+                x_reconst = self.gen_fake(x_fake, label_org, load_idx, self.G, self.M, i+1)
                 g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
 
                 # Backward and optimize.
@@ -386,7 +386,7 @@ class Solver(object):
                             label = torch.ones((x_test[k].size(0),),dtype=torch.long).to(self.device)
                             label = label*j
                             x_gen = x_test[k].clone()
-                            x_fake_list.append(self.gen_fake(x_gen, label, k, self.G_ema, self.M_ema))
+                            x_fake_list.append(self.gen_fake(x_gen, label, k, self.G_ema, self.M_ema, i+1))
                         x_concat = torch.cat(x_fake_list, dim=3)
                         sample_path = os.path.join(self.sample_dir, '{}_{}images.jpg'.format(i+1, self.img_size[k]))
                         save_image(self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0)

@@ -9,4 +9,5 @@ s = torch.randn((1,64))
 x = G(x,s)
 torch.save(G.state_dict(),"g.ckpt")
 """
-G.load_state_dict(torch.load('g.ckpt'))
+a = [5,2,3]
+print(a[0:2])

@@ -96,7 +96,7 @@ class Solver(object):
     def build_model(self):
         """Create a generator and a discriminator."""
 
-        self.G = Generator(img_size=self.img_size[0], style_dim=self.args.style_dim)
+        self.G = Generator(img_size=self.img_size, style_dim=self.args.style_dim)
         self.D = Discriminator(img_size=self.img_size[0], num_domains=self.c_dim)
         self.M = MappingNetwork(self.args.latent_dim, self.args.style_dim, self.c_dim)
 
@@ -226,52 +226,28 @@ class Solver(object):
         for i in range(len(iters)):
             if count <= iters[i]:
                 return i
-    def gen_fake(self, x_real, label_trg, load_idx, G, M):
+    def get_alpha(self, iters, load_idx):
+
+        total_iters = (self.iters[load_idx] - self.iters[load_idx-1]) if load_idx > 0 else self.iters[load_idx]
+        curr_iters = (iters - self.iters[load_idx]) if load_idx > 0 else iters
+        alpha = (curr_iters/total_iters) * self.args.fade_point
+        alpha = torch.tensor(alpha).to(self.device)
+        return alpha
+
+    def gen_fake(self, x_real, label_trg, load_idx, G, M, iters):
         """
         generates fake images using progressive upsampling
         """
-        # Multi scale generation (fake progressive)
-        if self.args.pro_type == 'pro1':
-            z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
-            s_trg = M(z, label_trg)
-            x_fake = G(x_real, s_trg)
 
-            return x_fake
+        alpha = self.get_alpha(iters, load_idx)
+        z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
+        s_trg = M(z, label_trg)
+        x_fake = G(x_real, s_trg, self.img_size[load_idx])
 
-        # progressive up sampling
-        elif self.args.pro_type == 'pro2':
-            if load_idx > 0:
-                x_gen = torch.nn.functional.interpolate(x_real,
-                                                            scale_factor=(self.img_size[0]/self.img_size[load_idx],
-                                                                          self.img_size[0]/self.img_size[load_idx]),
-                                                            mode='bilinear',align_corners=True)
-            else:
-                x_gen = x_real
-
-            assert x_gen.shape[2:] == (self.img_size[0], self.img_size[0]), "check interpolation factor in x_gen"
-
-            z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
-            s_trg = M(z, label_trg)
-            x_fake = G(x_gen, s_trg)
-            for i in range(1, load_idx+1):
-                x_fake = torch.nn.Upsample(scale_factor=2, mode=self.upsample_type)(x_fake)
-                """
-                Experiment later
-                z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
-                s_trg = self.M(z, label_trg)
-                """
-                x_fake = G(x_fake, s_trg)
-
-            return x_fake
-
-        else:
-            raise ValueError("pro_type should be in [pro1, pro2]")
-
-
+        return x_fake
 
     def train(self):
         """Progressive Training Loop."""
-
         loader = self.loader
         x_test = []
         y_test = []

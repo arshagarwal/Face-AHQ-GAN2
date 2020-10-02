@@ -1,13 +1,14 @@
 import torch
 import torch.nn.utils.spectral_norm as SPN
 
-from model import Generator
+from model import Generator, Discriminator
 
 G = Generator()
-"""x = torch.randn((1,3,128,128))
-s = torch.randn((1,64))
-x = G(x,s)
-torch.save(G.state_dict(),"g.ckpt")
-"""
-a = [5,2,3]
-print(a[0:2])
+input = torch.randn((1,3,256,256))
+input2 = torch.randn((1,3,512,512))
+s = torch.randn((1, 64))
+D = Discriminator()
+y = torch.tensor([0])
+a = 5
+a = torch.tensor(a)
+print(a)

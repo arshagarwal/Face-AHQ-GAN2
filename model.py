@@ -157,46 +157,128 @@ class Generator(nn.Module):
     """
     Upsamples/Downsamples Image size[0] - 4
     """
-    def __init__(self, img_size=256, style_dim=64, max_conv_dim=512, w_hpf=0):
+    def __init__(self, img_size=[256,512], style_dim=64, max_conv_dim=512, w_hpf=0):
         super().__init__()
-        dim_in = 2**14 // img_size
+        dim_in = 2**14 // img_size[-1]
         self.img_size = img_size
-        self.from_rgb = nn.Conv2d(3, dim_in, 3, 1, 1)
+        #self.from_rgb = nn.Conv2d(3, dim_in, 3, 1, 1)
+        self.from_rgb = nn.ModuleList()
         self.encode = nn.ModuleList()
         self.decode = nn.ModuleList()
-        self.to_rgb = nn.Sequential(
+        self.to_rgb = nn.ModuleList()
+        self.bottleneck = nn.ModuleList()
+
+        """
+        self.to_rgb_layer = nn.Sequential(
             nn.InstanceNorm2d(dim_in, affine=True),
             nn.LeakyReLU(0.2),
             nn.Conv2d(dim_in, 3, 1, 1, 0))
+        """
 
         # down/up-sampling blocks
-        repeat_num = int(np.log2(img_size)) - 4
+        repeat_num = int(np.log2(img_size[-1])) - 4
         for _ in range(repeat_num):
             dim_out = min(dim_in*2, max_conv_dim)
+
+            # Encoders
             self.encode.append(
                 ResBlk(dim_in, dim_out, normalize=True, downsample=True))
+            self.from_rgb.append(nn.Conv2d(3, dim_in, 3, 1, 1))
+
+            # Decoders
             self.decode.insert(
                 0, AdainResBlk(dim_out, dim_in, style_dim,
                                w_hpf=w_hpf, upsample=True))  # stack-like
+            self.to_rgb.insert(0, nn.Sequential(nn.InstanceNorm2d(dim_in, affine=True),
+                                            nn.LeakyReLU(0.2),
+                                            nn.Conv2d(dim_in, 3, 1, 1, 0)))
             dim_in = dim_out
 
+        """
         # bottleneck blocks
         for _ in range(2):
             self.encode.append(
                 ResBlk(dim_out, dim_out, normalize=True))
             self.decode.insert(
                 0, AdainResBlk(dim_out, dim_out, style_dim, w_hpf=w_hpf))
+        """
+        # bottleneck blocks
+        for _ in range(2):
+            self.bottleneck.append(
+                ResBlk(dim_out, dim_out, normalize=True))
+
+        for _ in range(2):
+            self.bottleneck.append(
+                AdainResBlk(dim_out, dim_out, style_dim, w_hpf=w_hpf))
 
 
-    def forward(self, x, s):
-        x = self.from_rgb(x)
-        for block in self.encode:
-            x = block(x)
 
-        for block in self.decode:
-            x = block(x, s)
+    def forward(self, x, s, img_size, alpha=0.1):
+        """
+        alpha: fading parameter.
+        img_size: Integer denoting the current image size.
+        """
+        (B, C, H, W) = x.shape
+        n = self.get_index(img_size)
+        if img_size == self.img_size[0]:
 
-        return self.to_rgb(x)
+            # Encode
+            x = self.from_rgb[-1 * n](x)
+            for block in self.encode[(-1 * n):]:
+                x = block(x)
+            # Bottle-neck
+            for block in self.bottleneck[:2]:
+                x = block(x)
+
+            for block in self.bottleneck[2:]:
+                x = block(x, s)
+            # Decode
+            for block in self.decode[:n]:
+                x = block(x, s)
+
+            assert x.shape[2:] == (H, W), "check Zeroth Gen Got: {} Expected: {}".format(x.shape, (B,C,H,W))
+            return self.to_rgb[n-1](x)
+
+        else:
+            straight_e = self.encode[-1 * n](self.from_rgb[-1 * n](x))
+            residual_e = self.temporary_downsampler(self.from_rgb[(-1 * n) + 1](x))
+            x = (alpha * straight_e) + ((1 - alpha) * residual_e)
+
+            assert x.shape[2:] == (H/2, W/2), "check encoder progressive growing Got: {} Expected: {}".format(x.shape[2:], (H/2, W/2))
+            for block in self.encode[((-1*n) + 1):]:
+                x = block(x)
+
+            for block in self.bottleneck[:2]:
+                x = block(x)
+
+            for block in self.bottleneck[2:]:
+                x = block(x, s)
+
+            for block in self.decode[:(n-1)]:
+                x = block(x, s)
+            residual = self.to_rgb[n-2](self.temporary_upsampler(x))
+            straight = self.to_rgb[n-1](self.decode[n-1](x, s))
+
+            assert residual.shape == (B, C, H, W), "check residual shape in decoder Got: {} Expected: {}".format(
+                                                                                    residual.shape, (B, C, H, W))
+            assert straight.shape == (B, C, H, W), "check straight shape in decoder Got: {} Expected: {}".format(
+                                                                                    straight.shape, (B, C, H, W))
+
+            return (alpha * straight) + ((1 - alpha) * residual)
+
+
+    def get_index(self, img_size):
+        """
+        img_size: Integer that denotes the current image size
+        returns the number of Resnet Up/Down Sampling Blocks to be used
+        """
+        return int(np.log2(img_size)) - 4
+
+    def temporary_upsampler(self, x):
+        return F.interpolate(x, scale_factor=2, mode='nearest')
+
+    def temporary_downsampler(self, x):
+        return F.avg_pool2d(x, 2)
 
 
 class MappingNetwork(nn.Module):
@@ -241,15 +323,20 @@ class Discriminator(nn.Module):
         blocks = []
         blocks += [nn.Conv2d(3, dim_in, 3, 1, 1)]
 
-        repeat_num = int(np.log2(img_size)) - 2
+        # increasing two down-sampling Res-Blk here
+        # repeat_num = int(np.log2(img_size)) -2
+        repeat_num = int(np.log2(img_size))
         for _ in range(repeat_num):
             dim_out = min(dim_in*2, max_conv_dim)
             blocks += [ResBlk(dim_in, dim_out, downsample=True)]
             dim_in = dim_out
 
         blocks += [nn.LeakyReLU(0.2)]
+        """
+        Removing second last layer
         blocks += [nn.Conv2d(dim_out, dim_out, 4, 1, 0)]
         blocks += [nn.LeakyReLU(0.2)]
+        """
         blocks += [nn.Conv2d(dim_out, num_domains, 1, 1, 0)]
         self.main = nn.Sequential(*blocks)
 

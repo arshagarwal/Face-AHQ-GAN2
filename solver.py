@@ -232,7 +232,7 @@ class Solver(object):
         curr_iters = (iters - self.iters[load_idx]) if load_idx > 0 else iters
         alpha = (curr_iters/(total_iters * self.args.fade_point))
         alpha = alpha if alpha <= 1 else 1
-        alpha = torch.tensor(alpha).to(self.device)
+       # alpha = torch.tensor(alpha).to(self.device)
         return alpha
 
     def gen_fake(self, x_real, label_trg, load_idx, G, M, iters):

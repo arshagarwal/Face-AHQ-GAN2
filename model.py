@@ -317,32 +317,65 @@ class Discriminator(nn.Module):
     """
     Down samples Image size[0] number of times
     """
-    def __init__(self, img_size=256, num_domains=2, max_conv_dim=512):
+    def __init__(self, img_size=[256,512], num_domains=2, max_conv_dim=512):
         super().__init__()
-        dim_in = 2**14 // img_size
-        blocks = []
-        blocks += [nn.Conv2d(3, dim_in, 3, 1, 1)]
+        dim_in = 2**14 // img_size[-1]
+        self.img_size = img_size
+        self.blocks = nn.ModuleList()
+        #blocks += [nn.Conv2d(3, dim_in, 3, 1, 1)]
+        self.from_rgb = nn.ModuleList()
 
-        # increasing two down-sampling Res-Blk here
-        # repeat_num = int(np.log2(img_size)) -2
-        repeat_num = int(np.log2(img_size))
+        repeat_num = int(np.log2(img_size[-1])) -2
         for _ in range(repeat_num):
             dim_out = min(dim_in*2, max_conv_dim)
-            blocks += [ResBlk(dim_in, dim_out, downsample=True)]
+            self.blocks.append(ResBlk(dim_in, dim_out, downsample=True))
+            self.from_rgb.append(nn.Conv2d(3, dim_in, 3, 1, 1))
             dim_in = dim_out
 
-        blocks += [nn.LeakyReLU(0.2)]
+        self.final = nn.Sequential(nn.LeakyReLU(0.2),
+                                   nn.Conv2d(dim_out, dim_out, 4, 1, 0),
+                                   nn.LeakyReLU(0.2),
+                                   nn.Conv2d(dim_out, num_domains, 1, 1, 0)
+                                   )
+        """"
+        self.blocks.append(nn.LeakyReLU(0.2))
+        self.blocks.append(nn.Conv2d(dim_out, dim_out, 4, 1, 0))
+        self.blocks.append(nn.LeakyReLU(0.2))
+        self.blocks.append(nn.Conv2d(dim_out, num_domains, 1, 1, 0))
         """
-        Removing second last layer
-        blocks += [nn.Conv2d(dim_out, dim_out, 4, 1, 0)]
-        blocks += [nn.LeakyReLU(0.2)]
-        """
-        blocks += [nn.Conv2d(dim_out, num_domains, 1, 1, 0)]
-        self.main = nn.Sequential(*blocks)
+        #self.main = nn.Sequential(*blocks)
 
-    def forward(self, x, y):
-        out = self.main(x)
+    def forward(self, x, y, alpha=0.1):
+
+        img_size = x.shape[2]
+        n = self.get_index(img_size)
+        if img_size == self.img_size[0]:
+            x = self.from_rgb[-1 * n](x)
+            for block in self.blocks[(-1 * n):]:
+                x = block(x)
+
+        else:
+            straight = self.blocks[-1 * n](self.from_rgb[-1 * n](x))
+            residual = self.temporary_downsampler(self.from_rgb[(-1 * n) + 1](x))
+            x = (alpha * straight) + ((1 - alpha) * residual)
+
+            for block in self.blocks[((-1*n) + 1):]:
+                x = block(x)
+
+            out = self.final(x)
+
+        out = self.final(x)
         out = out.view(out.size(0), -1)  # (batch, num_domains)
         idx = torch.LongTensor(range(y.size(0))).to(y.device)
         out = out[idx, y]  # (batch)
         return out
+
+    def get_index(self, img_size):
+        """
+        img_size: Integer that denotes the current image size
+        returns the number of Resnet Up/Down Sampling Blocks to be used
+        """
+        return int(np.log2(img_size)) - 2
+
+    def temporary_downsampler(self, x):
+        return F.interpolate(x, scale_factor=0.5, mode='nearest')

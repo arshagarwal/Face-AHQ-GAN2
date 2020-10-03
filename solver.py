@@ -97,7 +97,7 @@ class Solver(object):
         """Create a generator and a discriminator."""
 
         self.G = Generator(img_size=self.img_size, style_dim=self.args.style_dim)
-        self.D = Discriminator(img_size=self.img_size[0], num_domains=self.c_dim)
+        self.D = Discriminator(img_size=self.img_size, num_domains=self.c_dim)
         self.M = MappingNetwork(self.args.latent_dim, self.args.style_dim, self.c_dim)
 
         self.G_ema = copy.deepcopy(self.G)
@@ -284,6 +284,7 @@ class Solver(object):
             # =================================================================================== #
 
             load_idx = self.get_loader_index(self.iters, i+1)
+            alpha = self.get_alpha(i+1, load_idx)
             # Fetch real images and labels.
             try:
                 x_real, label_org = next(data[load_idx])
@@ -305,7 +306,7 @@ class Solver(object):
 
             # Compute loss with real images.
             x_real.requires_grad_()
-            out_src = self.D(x_real, label_org)
+            out_src = self.D(x_real, label_org, alpha)
             d_loss_real = torch.mean(torch.nn.ReLU(inplace=True)(1-out_src))
             d_loss_reg = r1_reg(out_src, x_real)
 
@@ -317,7 +318,7 @@ class Solver(object):
                 "check fake image generation Expected: {} Got {}".format(\
                     (self.img_size[load_idx],self.img_size[load_idx]), x_fake.shape[2:])
 
-            out_src = self.D(x_fake.detach(), label_trg)
+            out_src = self.D(x_fake.detach(), label_trg, alpha)
             d_loss_fake = torch.mean(torch.nn.ReLU(inplace=True)(1+out_src))
 
             # Backward and optimize.
@@ -343,7 +344,7 @@ class Solver(object):
                     "check fake image generation Expected: {} Got {}".format((
                     self.img_size[load_idx], self.img_size[load_idx]), x_fake.shape[2:])
 
-                out_src = self.D(x_fake, label_trg)
+                out_src = self.D(x_fake, label_trg, alpha)
                 g_loss_fake = - torch.mean(out_src)
 
                 # Target-to-original domain.

@@ -243,7 +243,7 @@ class Solver(object):
         alpha = self.get_alpha(iters, load_idx)
         z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
         s_trg = M(z, label_trg)
-        x_fake = G(x_real, s_trg, self.img_size[load_idx], alpha)
+        x_fake = G(x_real, s_trg, self.img_size[load_idx], alpha * self.args.fade_point)
 
         return x_fake
 

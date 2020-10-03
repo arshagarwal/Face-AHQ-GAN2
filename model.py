@@ -278,7 +278,7 @@ class Generator(nn.Module):
         return F.interpolate(x, scale_factor=2, mode='nearest')
 
     def temporary_downsampler(self, x):
-        return F.avg_pool2d(x, 2)
+        return F.interpolate(x, scale_factor=0.5, mode='nearest')
 
 
 class MappingNetwork(nn.Module):

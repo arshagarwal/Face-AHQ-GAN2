@@ -54,6 +54,29 @@ class Attention(nn.Module):
 
         return res
 
+
+class NoiseLayer(nn.Module):
+    """adds noise. noise is per pixel (constant over channels) with per-channel weight"""
+
+    def __init__(self, channels):
+        super().__init__()
+        self.weight = nn.Parameter(torch.zeros(channels))
+        self.noise = None
+        self.norm = nn.InstanceNorm2d(channels)
+
+    def forward(self, x, noise=None):
+        if noise is None and self.noise is None:
+            noise = torch.randn(x.size(0), 1, x.size(2), x.size(3), device=x.device, dtype=x.dtype)
+        elif noise is None:
+            # here is a little trick: if you get all the noise layers and set each
+            # modules .noise attribute, you can have pre-defined noise.
+            # Very useful for analysis
+            noise = self.noise
+        x = x + self.weight.view(1, -1, 1, 1) * noise
+        x = self.norm(x)
+        return x
+
+
 class ResBlk(nn.Module):
     def __init__(self, dim_in, dim_out, actv=nn.LeakyReLU(0.2),
                  normalize=False, downsample=False):
@@ -122,6 +145,9 @@ class AdainResBlk(nn.Module):
         self._build_weights(dim_in, dim_out, style_dim)
 
     def _build_weights(self, dim_in, dim_out, style_dim=64):
+        # noise layers
+        self.noise1 = NoiseLayer(dim_in)
+        self.noise2 = NoiseLayer(dim_out)
         self.conv1 = nn.Conv2d(dim_in, dim_out, 3, 1, 1)
         self.conv2 = nn.Conv2d(dim_out, dim_out, 3, 1, 1)
         self.norm1 = AdaIN(style_dim, dim_in)
@@ -137,11 +163,13 @@ class AdainResBlk(nn.Module):
         return x
 
     def _residual(self, x, s):
+        x = self.noise1(x)
         x = self.norm1(x, s)
         x = self.actv(x)
         if self.upsample:
             x = F.interpolate(x, scale_factor=2, mode='nearest')
         x = self.conv1(x)
+        x = self.noise2(x)
         x = self.norm2(x, s)
         x = self.actv(x)
         x = self.conv2(x)

@@ -96,7 +96,7 @@ class Solver(object):
     def build_model(self):
         """Create a generator and a discriminator."""
 
-        self.G = Generator(img_size=self.img_size, style_dim=self.args.style_dim)
+        self.G = Generator(img_size=self.img_size[-1], style_dim=self.args.style_dim)
         self.D = Discriminator(img_size=self.img_size, num_domains=self.c_dim)
         self.M = MappingNetwork(self.args.latent_dim, self.args.style_dim, self.c_dim)
 
@@ -243,7 +243,8 @@ class Solver(object):
         alpha = self.get_alpha(iters, load_idx)
         z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
         s_trg = M(z, label_trg)
-        x_fake = G(x_real, s_trg, self.img_size[load_idx], alpha * self.args.fade_point)
+        #x_fake = G(x_real, s_trg, self.img_size[load_idx], alpha * self.args.fade_point)
+        x_fake = G(x_real, s_trg)
 
         return x_fake
 

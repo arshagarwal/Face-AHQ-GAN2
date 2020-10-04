@@ -153,10 +153,58 @@ class AdainResBlk(nn.Module):
             out = (out + self._shortcut(x)) / math.sqrt(2)
         return out
 
+
 class Generator(nn.Module):
     """
     Upsamples/Downsamples Image size[0] - 4
     """
+    def __init__(self, img_size=256, style_dim=64, max_conv_dim=512, w_hpf=0):
+        super().__init__()
+        dim_in = 2**14 // img_size
+        self.img_size = img_size
+        self.from_rgb = nn.Conv2d(3, dim_in, 3, 1, 1)
+        self.encode = nn.ModuleList()
+        self.decode = nn.ModuleList()
+        self.to_rgb = nn.Sequential(
+            nn.InstanceNorm2d(dim_in, affine=True),
+            nn.LeakyReLU(0.2),
+            nn.Conv2d(dim_in, 3, 1, 1, 0))
+
+        # down/up-sampling blocks
+        repeat_num = int(np.log2(img_size)) - 4
+        for _ in range(repeat_num):
+            dim_out = min(dim_in*2, max_conv_dim)
+            self.encode.append(
+                ResBlk(dim_in, dim_out, normalize=True, downsample=True))
+            self.decode.insert(
+                0, AdainResBlk(dim_out, dim_in, style_dim,
+                               w_hpf=w_hpf, upsample=True))  # stack-like
+            dim_in = dim_out
+
+        # bottleneck blocks
+        for _ in range(2):
+            self.encode.append(
+                ResBlk(dim_out, dim_out, normalize=True))
+            self.decode.insert(
+                0, AdainResBlk(dim_out, dim_out, style_dim, w_hpf=w_hpf))
+
+
+    def forward(self, x, s):
+        x = self.from_rgb(x)
+        for block in self.encode:
+            x = block(x)
+
+        for block in self.decode:
+            x = block(x, s)
+
+        return self.to_rgb(x)
+
+
+""""
+class Generator(nn.Module):
+
+    Upsamples/Downsamples Image size[0] - 4
+
     def __init__(self, img_size=[256,512], style_dim=64, max_conv_dim=512, w_hpf=0):
         super().__init__()
         dim_in = 2**14 // img_size[-1]
@@ -169,11 +217,11 @@ class Generator(nn.Module):
         self.bottleneck = nn.ModuleList()
 
         """
-        self.to_rgb_layer = nn.Sequential(
-            nn.InstanceNorm2d(dim_in, affine=True),
-            nn.LeakyReLU(0.2),
-            nn.Conv2d(dim_in, 3, 1, 1, 0))
-        """
+        #self.to_rgb_layer = nn.Sequential(
+         #   nn.InstanceNorm2d(dim_in, affine=True),
+          #  nn.LeakyReLU(0.2),
+           # nn.Conv2d(dim_in, 3, 1, 1, 0))
+"""
 
         # down/up-sampling blocks
         repeat_num = int(np.log2(img_size[-1])) - 4
@@ -196,12 +244,12 @@ class Generator(nn.Module):
 
         """
         # bottleneck blocks
-        for _ in range(2):
-            self.encode.append(
-                ResBlk(dim_out, dim_out, normalize=True))
-            self.decode.insert(
-                0, AdainResBlk(dim_out, dim_out, style_dim, w_hpf=w_hpf))
-        """
+        #for _ in range(2):
+         #   self.encode.append(
+          #      ResBlk(dim_out, dim_out, normalize=True))
+           # self.decode.insert(
+            #    0, AdainResBlk(dim_out, dim_out, style_dim, w_hpf=w_hpf))
+"""
         # bottleneck blocks
         for _ in range(2):
             self.bottleneck.append(
@@ -214,10 +262,10 @@ class Generator(nn.Module):
 
 
     def forward(self, x, s, img_size, alpha=0.1):
-        """
-        alpha: fading parameter.
-        img_size: Integer denoting the current image size.
-        """
+"""
+        # alpha: fading parameter.
+        # img_size: Integer denoting the current image size.
+"""
         (B, C, H, W) = x.shape
         n = self.get_index(img_size)
         if img_size == self.img_size[0]:
@@ -266,12 +314,11 @@ class Generator(nn.Module):
 
             return (alpha * straight) + ((1 - alpha) * residual)
 
-
     def get_index(self, img_size):
         """
-        img_size: Integer that denotes the current image size
-        returns the number of Resnet Up/Down Sampling Blocks to be used
-        """
+   #     img_size: Integer that denotes the current image size
+    #    returns the number of Resnet Up/Down Sampling Blocks to be used
+"""
         return int(np.log2(img_size)) - 4
 
     def temporary_upsampler(self, x):
@@ -279,6 +326,7 @@ class Generator(nn.Module):
 
     def temporary_downsampler(self, x):
         return F.interpolate(x, scale_factor=0.5, mode='nearest')
+"""
 
 
 class MappingNetwork(nn.Module):

@@ -204,6 +204,9 @@ class Generator(nn.Module):
         # alpha: fading parameter.
         # img_size: Integer denoting the current image size.
         """
+        assert x.shape[2:] == (self.img_size[-1], self.img_size[-1]),"Check Generator input Exp: {} Got{}".format(
+            (self.img_size[-1], self.img_size[-1]), x.shape
+        )
         (B, C, H, W) = x.shape
         n = self.get_index(img_size)
         if img_size == self.img_size[0]:
@@ -222,7 +225,9 @@ class Generator(nn.Module):
             for block in self.decode[:n]:
                 x = block(x, s)
 
-            assert x.shape[2:] == (H, W), "check Zeroth Gen Got: {} Expected: {}".format(x.shape, (B,C,H,W))
+            assert x.shape[2:] == (img_size, img_size), "check Zeroth Gen Got: {} Expected: {}".format(
+                x.shape, (B,C,img_size, img_size))
+
             return self.to_rgb[n-1](x)
 
         else:
@@ -254,7 +259,11 @@ class Generator(nn.Module):
    #     img_size: Integer that denotes the current image size
     #    returns the number of Resnet Up/Down Sampling Blocks to be used
 """
-        return int(np.log2(img_size)) - 4
+        # number of downsampling blocks
+        d = int(np.log2(self.img_size[-1])) - 4
+        # number of up-sampling blocks needed for current Resolution
+        u = int(np.log2(self.img_size[-1] / img_size))
+        return d - u
 
     def temporary_upsampler(self, x):
         return F.interpolate(x, scale_factor=2, mode='nearest')
@@ -373,11 +382,7 @@ class Discriminator(nn.Module):
             for block in self.blocks[((-1 * n) + 1):]:
                 x = block(x)
 
-        out = self.final(x)
-        out = out.view(out.size(0), -1)  # (batch, num_domains)
-        idx = torch.LongTensor(range(y.size(0))).to(y.device)
-        out = out[idx, y]  # (batch)
-        return x, out
+        return x
 
     def get_index(self, img_size):
         """

@@ -342,7 +342,7 @@ class Discriminator(nn.Module):
         parent: defines whether the forward is executed for generator or disc
         """
         if parent == "Gen":
-            self.gen_forward(x, y, alpha)
+            return self.gen_forward(x, y, alpha)
         else:
             img_size = x.shape[2]
             n = self.get_index(img_size)

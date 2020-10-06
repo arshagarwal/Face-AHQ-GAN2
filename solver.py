@@ -342,7 +342,7 @@ class Solver(object):
             # Logging.
             loss = {}
             loss['D/loss_real'] = d_loss_real.item()
-
+            loss['D/loss_fake'] = d_loss_fake.item()
             
             # =================================================================================== #
             #                               3. Train the generator                                #
@@ -374,7 +374,7 @@ class Solver(object):
                 # Logging.
                 loss['G/loss_fake'] = g_loss_fake.item()
                 loss['G/loss_rec'] = g_loss_rec.item()
-                loss['D/loss_fake'] = d_loss_fake.item()
+                loss['G/loss_fm'] = g_loss_fm.item()
 
                 #calculating moving averages for generator nnetwork
                 moving_average(self.G, self.G_ema)

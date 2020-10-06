@@ -244,7 +244,8 @@ class Generator(nn.Module):
 
             for block in self.decode[:(n-1)]:
                 x = block(x, s)
-            residual = self.to_rgb[n-2](self.temporary_upsampler(x))
+            #residual = self.to_rgb[n-2](self.temporary_upsampler(x))
+            residual = self.temporary_downsampler(self.to_rgb[n-2](x))
             straight = self.to_rgb[n-1](self.decode[n-1](x, s))
 
             assert residual.shape == (B, C, H, W), "check residual shape in decoder Got: {} Expected: {}".format(

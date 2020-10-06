@@ -96,7 +96,7 @@ class Solver(object):
     def build_model(self):
         """Create a generator and a discriminator."""
 
-        self.G = Generator(img_size=self.img_size[0], style_dim=self.args.style_dim)
+        self.G = Generator(img_size=self.img_size, style_dim=self.args.style_dim)
         self.D = Discriminator(img_size=self.img_size, num_domains=self.c_dim)
         self.M = MappingNetwork(self.args.latent_dim, self.args.style_dim, self.c_dim)
 
@@ -243,10 +243,19 @@ class Solver(object):
         alpha = self.get_alpha(iters, load_idx)
         z = torch.randn((x_real.size(0), self.args.latent_dim)).to(self.device)
         s_trg = M(z, label_trg)
-        #x_fake = G(x_real, s_trg, self.img_size[load_idx], alpha * self.args.fade_point)
-        x_fake = G(x_real, s_trg)
+        x_fake = G(x_real, s_trg, self.img_size[load_idx], alpha * self.args.fade_point)
 
         return x_fake
+
+    def rec_loss(self, x, x_rec):
+        assert x.shape == x_rec.shape, "Incorrect shape in Image Rec Exp: {} Got".format(
+            x.shape, x_rec.shape
+        )
+        return torch.mean(torch.abs(x - x_rec))
+
+    def downsample(self, x, load_idx):
+        return F.interpolate(x, scale_factor=(self.img_size[load_idx]/x.shape[2], self.img_size[load_idx]/x.shape[2]),
+                             mode='nearest')
 
     def train(self):
         """Progressive Training Loop."""
@@ -256,7 +265,7 @@ class Solver(object):
 
         # Fetch fixed inputs for debugging.
         for i in range(len(loader)):
-            data_iter = iter(loader[i])
+            data_iter = iter(loader[-1])
             x_fixed, c_org = next(data_iter)
             x_fixed = x_fixed.to(self.device)
             #c_fixed_list = self.create_labels(c_org, self.c_dim)
@@ -288,16 +297,16 @@ class Solver(object):
             alpha = self.get_alpha(i+1, load_idx)
             # Fetch real images and labels.
             try:
-                x_real, label_org = next(data[load_idx])
+                x_gen, label_org = next(data[-1])
             except:
-                data[load_idx] = iter(loader[load_idx])
-                x_real, label_org = next(data[load_idx])
+                data[load_idx] = iter(loader[-1])
+                x_gen, label_org = next(data[-1])
 
             # Generate target domain labels randomly.
             rand_idx = torch.randperm(label_org.size(0))
             label_trg = label_org[rand_idx]
 
-            x_real = x_real.to(self.device)           # Input images.
+            x_gen = x_gen.to(self.device)           # Input images.
             label_org = label_org.to(self.device)     # Labels for computing classification loss.
             label_trg = label_trg.to(self.device)     # Labels for computing classification loss.
 
@@ -306,20 +315,22 @@ class Solver(object):
             # =================================================================================== #
 
             # Compute loss with real images.
+            x_real = self.downsample(x_gen, load_idx)
+            assert x_real.device == x_gen.device,"check x_real device"
             x_real.requires_grad_()
             out_src = self.D(x_real, label_org, alpha)
             d_loss_real = torch.mean(torch.nn.ReLU(inplace=True)(1-out_src))
             d_loss_reg = r1_reg(out_src, x_real)
 
             # Compute loss with fake images.
-            #x_fake = self.G(x_real, c_trg)
-            x_fake = self.gen_fake(x_real, label_trg, load_idx, self.G, self.M, i+1)
+            with torch.no_grad():
+                x_fake = self.gen_fake(x_gen, label_trg, load_idx, self.G, self.M, i+1)
 
             assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), \
                 "check fake image generation Expected: {} Got {}".format(\
                     (self.img_size[load_idx],self.img_size[load_idx]), x_fake.shape[2:])
 
-            out_src = self.D(x_fake.detach(), label_trg, alpha)
+            out_src = self.D(x_fake, label_trg, alpha)
             d_loss_fake = torch.mean(torch.nn.ReLU(inplace=True)(1+out_src))
 
             # Backward and optimize.
@@ -339,7 +350,7 @@ class Solver(object):
             
             if (i+1) % self.n_critic == 0:
                 # Original-to-target domain.
-                x_fake = self.gen_fake(x_real, label_trg, load_idx, self.G, self.M, i+1)
+                x_fake = self.gen_fake(x_gen, label_trg, load_idx, self.G, self.M, i+1)
 
                 assert x_fake.shape[2:] == (self.img_size[load_idx], self.img_size[load_idx]), \
                     "check fake image generation Expected: {} Got {}".format((
@@ -349,11 +360,12 @@ class Solver(object):
                 g_loss_fake = - torch.mean(out_src)
 
                 # Target-to-original domain.
-                x_reconst = self.gen_fake(x_fake, label_org, load_idx, self.G, self.M, i+1)
-                g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
+                x_rec = self.gen_fake(x_gen, label_org, load_idx, self.G, self.M, i + 1)
+                g_loss_rec = self.rec_loss(x_real, x_rec)
+                g_loss_fm = self.rec_loss(self.D.gen_forward(x_real, label_org, alpha), self.D.gen_forward(x_rec, label_org, alpha))
 
                 # Backward and optimize.
-                g_loss = g_loss_fake + self.lambda_rec * g_loss_rec
+                g_loss = g_loss_fake + self.lambda_rec * g_loss_rec + self.args.lambda_fm * g_loss_fm
                 self.reset_grad()
                 g_loss.backward()
                 self.g_optimizer.step()
@@ -384,12 +396,12 @@ class Solver(object):
             if (i+1) % self.sample_step == 0:
                 with torch.no_grad():
                     for k in range(len(loader)):
-                        x_fake_list = [x_test[k]]
+                        x_fake_list = [self.downsample(x_test[k], k)]
                         for j in range(self.c_dim):
                             label = torch.ones((x_test[k].size(0),),dtype=torch.long).to(self.device)
                             label = label*j
-                            x_gen = x_test[k].clone()
-                            x_fake_list.append(self.gen_fake(x_gen, label, k, self.G_ema, self.M_ema, i+1))
+                            #x_gen = x_test[k].clone()
+                            x_fake_list.append(self.gen_fake(x_test[k], label, k, self.G_ema, self.M_ema, i+1))
                         x_concat = torch.cat(x_fake_list, dim=3)
                         sample_path = os.path.join(self.sample_dir, '{}_{}images.jpg'.format(i+1, self.img_size[k]))
                         save_image(self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0)

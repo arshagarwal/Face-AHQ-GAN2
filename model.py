@@ -156,72 +156,18 @@ class AdainResBlk(nn.Module):
 
 class Generator(nn.Module):
     """
-    Upsamples/Downsamples Image size[0] - 4
+    Upsamples/Downsamples Image size - 4
     """
-    def __init__(self, img_size=256, style_dim=64, max_conv_dim=512, w_hpf=0):
-        super().__init__()
-        dim_in = 2**14 // img_size
-        self.img_size = img_size
-        self.from_rgb = nn.Conv2d(3, dim_in, 3, 1, 1)
-        self.encode = nn.ModuleList()
-        self.decode = nn.ModuleList()
-        self.to_rgb = nn.Sequential(
-            nn.InstanceNorm2d(dim_in, affine=True),
-            nn.LeakyReLU(0.2),
-            nn.Conv2d(dim_in, 3, 1, 1, 0))
-
-        # down/up-sampling blocks
-        repeat_num = int(np.log2(img_size)) - 4
-        for _ in range(repeat_num):
-            dim_out = min(dim_in*2, max_conv_dim)
-            self.encode.append(
-                ResBlk(dim_in, dim_out, normalize=True, downsample=True))
-            self.decode.insert(
-                0, AdainResBlk(dim_out, dim_in, style_dim,
-                               w_hpf=w_hpf, upsample=True))  # stack-like
-            dim_in = dim_out
-
-        # bottleneck blocks
-        for _ in range(2):
-            self.encode.append(
-                ResBlk(dim_out, dim_out, normalize=True))
-            self.decode.insert(
-                0, AdainResBlk(dim_out, dim_out, style_dim, w_hpf=w_hpf))
-
-
-    def forward(self, x, s):
-        x = self.from_rgb(x)
-        for block in self.encode:
-            x = block(x)
-
-        for block in self.decode:
-            x = block(x, s)
-
-        return self.to_rgb(x)
-
-
-""""
-class Generator(nn.Module):
-
-    Upsamples/Downsamples Image size[0] - 4
-
     def __init__(self, img_size=[256,512], style_dim=64, max_conv_dim=512, w_hpf=0):
         super().__init__()
         dim_in = 2**14 // img_size[-1]
         self.img_size = img_size
-        #self.from_rgb = nn.Conv2d(3, dim_in, 3, 1, 1)
-        self.from_rgb = nn.ModuleList()
+        self.from_rgb = nn.Conv2d(3, dim_in, 3, 1, 1)
         self.encode = nn.ModuleList()
         self.decode = nn.ModuleList()
         self.to_rgb = nn.ModuleList()
         self.bottleneck = nn.ModuleList()
 
-        """
-        #self.to_rgb_layer = nn.Sequential(
-         #   nn.InstanceNorm2d(dim_in, affine=True),
-          #  nn.LeakyReLU(0.2),
-           # nn.Conv2d(dim_in, 3, 1, 1, 0))
-"""
 
         # down/up-sampling blocks
         repeat_num = int(np.log2(img_size[-1])) - 4
@@ -231,7 +177,6 @@ class Generator(nn.Module):
             # Encoders
             self.encode.append(
                 ResBlk(dim_in, dim_out, normalize=True, downsample=True))
-            self.from_rgb.append(nn.Conv2d(3, dim_in, 3, 1, 1))
 
             # Decoders
             self.decode.insert(
@@ -242,14 +187,7 @@ class Generator(nn.Module):
                                             nn.Conv2d(dim_in, 3, 1, 1, 0)))
             dim_in = dim_out
 
-        """
-        # bottleneck blocks
-        #for _ in range(2):
-         #   self.encode.append(
-          #      ResBlk(dim_out, dim_out, normalize=True))
-           # self.decode.insert(
-            #    0, AdainResBlk(dim_out, dim_out, style_dim, w_hpf=w_hpf))
-"""
+
         # bottleneck blocks
         for _ in range(2):
             self.bottleneck.append(
@@ -262,17 +200,17 @@ class Generator(nn.Module):
 
 
     def forward(self, x, s, img_size, alpha=0.1):
-"""
+        """
         # alpha: fading parameter.
         # img_size: Integer denoting the current image size.
-"""
+        """
         (B, C, H, W) = x.shape
         n = self.get_index(img_size)
         if img_size == self.img_size[0]:
 
             # Encode
-            x = self.from_rgb[-1 * n](x)
-            for block in self.encode[(-1 * n):]:
+            x = self.from_rgb(x)
+            for block in self.encode:
                 x = block(x)
             # Bottle-neck
             for block in self.bottleneck[:2]:
@@ -288,12 +226,9 @@ class Generator(nn.Module):
             return self.to_rgb[n-1](x)
 
         else:
-            straight_e = self.encode[-1 * n](self.from_rgb[-1 * n](x))
-            residual_e = self.temporary_downsampler(self.from_rgb[(-1 * n) + 1](x))
-            x = (alpha * straight_e) + ((1 - alpha) * residual_e)
-
-            assert x.shape[2:] == (H/2, W/2), "check encoder progressive growing Got: {} Expected: {}".format(x.shape[2:], (H/2, W/2))
-            for block in self.encode[((-1*n) + 1):]:
+            # Encode
+            x = self.from_rgb(x)
+            for block in self.encode:
                 x = block(x)
 
             for block in self.bottleneck[:2]:
@@ -326,7 +261,7 @@ class Generator(nn.Module):
 
     def temporary_downsampler(self, x):
         return F.interpolate(x, scale_factor=0.5, mode='nearest')
-"""
+
 
 
 class MappingNetwork(nn.Module):
@@ -417,6 +352,32 @@ class Discriminator(nn.Module):
         idx = torch.LongTensor(range(y.size(0))).to(y.device)
         out = out[idx, y]  # (batch)
         return out
+
+    def gen_forward(self, x, y, alpha):
+        """
+        returns discriminator features, Real/Fake prediction
+        used in computing generator loss.
+        """
+        img_size = x.shape[2]
+        n = self.get_index(img_size)
+        if img_size == self.img_size[0]:
+            x = self.from_rgb[-1 * n](x)
+            for block in self.blocks[(-1 * n):]:
+                x = block(x)
+
+        else:
+            straight = self.blocks[-1 * n](self.from_rgb[-1 * n](x))
+            residual = self.temporary_downsampler(self.from_rgb[(-1 * n) + 1](x))
+            x = (alpha * straight) + ((1 - alpha) * residual)
+
+            for block in self.blocks[((-1 * n) + 1):]:
+                x = block(x)
+
+        out = self.final(x)
+        out = out.view(out.size(0), -1)  # (batch, num_domains)
+        idx = torch.LongTensor(range(y.size(0))).to(y.device)
+        out = out[idx, y]  # (batch)
+        return x, out
 
     def get_index(self, img_size):
         """

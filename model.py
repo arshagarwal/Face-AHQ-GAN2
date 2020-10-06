@@ -337,30 +337,35 @@ class Discriminator(nn.Module):
         """
         #self.main = nn.Sequential(*blocks)
 
-    def forward(self, x, y, alpha=0.1):
-
-        img_size = x.shape[2]
-        n = self.get_index(img_size)
-        if img_size == self.img_size[0]:
-            x = self.from_rgb[-1 * n](x)
-            for block in self.blocks[(-1 * n):]:
-                x = block(x)
-
+    def forward(self, x, y, alpha=0.1, parent='Disc'):
+        """
+        parent: defines whether the forward is executed for generator or disc
+        """
+        if parent == "Gen":
+            self.gen_forward(x, y, alpha)
         else:
-            straight = self.blocks[-1 * n](self.from_rgb[-1 * n](x))
-            residual = self.temporary_downsampler(self.from_rgb[(-1 * n) + 1](x))
-            x = (alpha * straight) + ((1 - alpha) * residual)
+            img_size = x.shape[2]
+            n = self.get_index(img_size)
+            if img_size == self.img_size[0]:
+                x = self.from_rgb[-1 * n](x)
+                for block in self.blocks[(-1 * n):]:
+                    x = block(x)
 
-            for block in self.blocks[((-1*n) + 1):]:
-                x = block(x)
+            else:
+                straight = self.blocks[-1 * n](self.from_rgb[-1 * n](x))
+                residual = self.temporary_downsampler(self.from_rgb[(-1 * n) + 1](x))
+                x = (alpha * straight) + ((1 - alpha) * residual)
+
+                for block in self.blocks[((-1*n) + 1):]:
+                    x = block(x)
+
+                out = self.final(x)
 
             out = self.final(x)
-
-        out = self.final(x)
-        out = out.view(out.size(0), -1)  # (batch, num_domains)
-        idx = torch.LongTensor(range(y.size(0))).to(y.device)
-        out = out[idx, y]  # (batch)
-        return out
+            out = out.view(out.size(0), -1)  # (batch, num_domains)
+            idx = torch.LongTensor(range(y.size(0))).to(y.device)
+            out = out[idx, y]  # (batch)
+            return out
 
     def gen_forward(self, x, y, alpha):
         """

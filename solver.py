@@ -299,7 +299,7 @@ class Solver(object):
             try:
                 x_gen, label_org = next(data[-1])
             except:
-                data[load_idx] = iter(loader[-1])
+                data[-1] = iter(loader[-1])
                 x_gen, label_org = next(data[-1])
 
             # Generate target domain labels randomly.

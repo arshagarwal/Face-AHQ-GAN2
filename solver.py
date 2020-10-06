@@ -343,6 +343,7 @@ class Solver(object):
             loss = {}
             loss['D/loss_real'] = d_loss_real.item()
             loss['D/loss_fake'] = d_loss_fake.item()
+            loss['G/loss_fm'] = g_loss_fm.item()
             
             # =================================================================================== #
             #                               3. Train the generator                                #

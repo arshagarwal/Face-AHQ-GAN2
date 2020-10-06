@@ -362,7 +362,7 @@ class Solver(object):
                 # Target-to-original domain.
                 x_rec = self.gen_fake(x_gen, label_org, load_idx, self.G, self.M, i + 1)
                 g_loss_rec = self.rec_loss(x_real, x_rec)
-                g_loss_fm = self.rec_loss(self.D.gen_forward(x_real, label_org, alpha, 'Gen'), self.D.gen_forward(x_rec, label_org, alpha, 'Gen'))
+                g_loss_fm = self.rec_loss(self.D(x_real, label_org, alpha, 'Gen'), self.D(x_rec, label_org, alpha, 'Gen'))
 
                 # Backward and optimize.
                 g_loss = g_loss_fake + self.lambda_rec * g_loss_rec + self.args.lambda_fm * g_loss_fm

@@ -368,6 +368,8 @@ class Solver(object):
                 g_loss = g_loss_fake + self.lambda_rec * g_loss_rec + self.args.lambda_fm * g_loss_fm
                 self.reset_grad()
                 g_loss.backward()
+                # Gradient Clipping
+                nn.utils.clip_grad_norm_(self.gen.parameters(), max_norm=10.)
                 self.g_optimizer.step()
                 self.m_optimizer.step()
 

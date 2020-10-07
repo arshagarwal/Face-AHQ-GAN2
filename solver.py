@@ -369,7 +369,7 @@ class Solver(object):
                 self.reset_grad()
                 g_loss.backward()
                 # Gradient Clipping
-                nn.utils.clip_grad_norm_(self.gen.parameters(), max_norm=10.)
+                nn.utils.clip_grad_norm_(self.G.parameters(), max_norm=10.)
                 self.g_optimizer.step()
                 self.m_optimizer.step()
 

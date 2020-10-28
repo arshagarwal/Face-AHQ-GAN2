@@ -275,34 +275,55 @@ class Generator(nn.Module):
 
 
 class MappingNetwork(nn.Module):
-    def __init__(self, latent_dim=16, style_dim=64, num_domains=2):
+    def __init__(self, latent_dim=16, style_dim=64, num_domains=2, embedding_dim=50):
         super().__init__()
+        self.latent_dim = latent_dim
+        self.embedding_dim = embedding_dim
+        self.style_dim = style_dim
         layers = []
+        """
         layers += [nn.Linear(latent_dim, 512)]
         layers += [nn.ReLU()]
+        """
+        self.from_noise = nn.Sequential(nn.Linear(latent_dim, 512),
+                                   nn.ReLU())
+        self.embedding = nn.Sequential(nn.Embedding(num_domains, embedding_dim),
+                                  nn.ReLU())
         for _ in range(3):
             layers += [nn.Linear(512, 512)]
             layers += [nn.ReLU()]
         self.shared = nn.Sequential(*layers)
 
         self.unshared = nn.ModuleList()
-        for _ in range(num_domains):
-            self.unshared += [nn.Sequential(nn.Linear(512, 512),
-                                            nn.ReLU(),
-                                            nn.Linear(512, 512),
-                                            nn.ReLU(),
-                                            nn.Linear(512, 512),
-                                            nn.ReLU(),
-                                            nn.Linear(512, style_dim))]
+
+        # removing diff network for diff domains
+        #for _ in range(num_domains):
+        self.unshared += [nn.Sequential(nn.Linear(512, 512),
+                                        nn.ReLU(),
+                                        nn.Linear(512, 512),
+                                        nn.ReLU(),
+                                        nn.Linear(512, 512),
+                                        nn.ReLU(),
+                                        nn.Linear(512, style_dim))]
 
     def forward(self, z, y):
+        z = self.from_noise(z)
+        e = self.embedding(y)
+        z = torch.cat((z, e), dim=1)
+
+        assert z.shape[1] == 512 + self.embedding_dim, "check embedding concatenation"
         h = self.shared(z)
+        """
         out = []
         for layer in self.unshared:
             out += [layer(h)]
         out = torch.stack(out, dim=1)  # (batch, num_domains, style_dim)
         idx = torch.LongTensor(range(y.size(0))).to(y.device)
         s = out[idx, y]  # (batch, style_dim)
+        """
+        s = self.unshared(h)
+
+        assert s.shape == (y.shape[0], self.style_dim), "Mapping Network generates tensor with wrong style shape"
         return s
 
 

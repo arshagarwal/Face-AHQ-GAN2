@@ -290,7 +290,7 @@ class MappingNetwork(nn.Module):
         self.embedding = nn.Sequential(nn.Embedding(num_domains, embedding_dim),
                                   nn.ReLU())
         for _ in range(3):
-            layers += [nn.Linear(512, 512)]
+            layers += [nn.Linear(512 + embedding_dim, 512)]
             layers += [nn.ReLU()]
         self.shared = nn.Sequential(*layers)
 

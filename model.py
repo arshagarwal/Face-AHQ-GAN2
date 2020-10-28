@@ -289,22 +289,24 @@ class MappingNetwork(nn.Module):
                                    nn.ReLU())
         self.embedding = nn.Sequential(nn.Embedding(num_domains, embedding_dim),
                                   nn.ReLU())
-        for _ in range(3):
-            layers += [nn.Linear(512 + embedding_dim, 512)]
+        layers += [nn.Linear(512 + embedding_dim, 512)]
+        layers += [nn.ReLU()]
+        for _ in range(2):
+            layers += [nn.Linear(512, 512)]
             layers += [nn.ReLU()]
         self.shared = nn.Sequential(*layers)
 
-        self.unshared = nn.ModuleList()
+        #self.unshared = nn.ModuleList()
 
         # removing diff network for diff domains
         #for _ in range(num_domains):
-        self.unshared += [nn.Sequential(nn.Linear(512, 512),
+        self.unshared = nn.Sequential(nn.Linear(512, 512),
                                         nn.ReLU(),
                                         nn.Linear(512, 512),
                                         nn.ReLU(),
                                         nn.Linear(512, 512),
                                         nn.ReLU(),
-                                        nn.Linear(512, style_dim))]
+                                        nn.Linear(512, style_dim))
 
     def forward(self, z, y):
         z = self.from_noise(z)

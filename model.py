@@ -266,6 +266,9 @@ class Discriminator(nn.Module):
     def __init__(self, img_size=256, num_domains=2, max_conv_dim=512):
         super().__init__()
         dim_in = 2**14 // img_size
+
+        self.embedding = nn.Sequential(nn.Embedding(num_domains, 16),
+                                       nn.LeakyReLU(0.2))
         blocks = []
         blocks += [nn.Conv2d(3, dim_in, 3, 1, 1)]
 
@@ -276,14 +279,28 @@ class Discriminator(nn.Module):
             dim_in = dim_out
 
         blocks += [nn.LeakyReLU(0.2)]
+        self.main = nn.Sequential(*blocks)
+        self.final = nn.Sequential(nn.Conv2d(dim_out + 1, dim_out, 4, 1, 0),
+                                   nn.LeakyReLU(0.2),
+                                   nn.Conv2d(dim_out, 1, 1, 1, 0))
+        """"
         blocks += [nn.Conv2d(dim_out, dim_out, 4, 1, 0)]
         blocks += [nn.LeakyReLU(0.2)]
         blocks += [nn.Conv2d(dim_out, num_domains, 1, 1, 0)]
         self.main = nn.Sequential(*blocks)
-
+        """
     def forward(self, x, y):
         out = self.main(x)
+        """
         out = out.view(out.size(0), -1)  # (batch, num_domains)
         idx = torch.LongTensor(range(y.size(0))).to(y.device)
         out = out[idx, y]  # (batch)
+        """
+        embedding = self.embedding(y)
+        embedding = embedding.reshape((-1,1,4,4))
+        assert out.shape[2:] == embedding.shape[2:], "check embedding shape in D"
+        out = torch.cat((out, embedding), dim=1)
+        out = self.final(out)
+        assert out.shape == (y.shape[0], 1, 1, 1), "check D final layer shape"
+        out = out.reshape(-1,1)
         return out

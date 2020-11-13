@@ -32,6 +32,8 @@ def main(config):
         solver.train()
     elif config.mode == 'test':
         solver.test()
+    elif config.mode == 'test2':
+        solver.test2()
 
 
 if __name__ == '__main__':
@@ -74,6 +76,7 @@ if __name__ == '__main__':
 
     # Test configuration.
     parser.add_argument('--test_iters', type=int, default=200000, help='test model from this step')
+    parser.add_argument('--n', type=int, default=5, help='number of Images per domain in test2')
 
     # Miscellaneous.
     parser.add_argument('--num_workers', type=int, default=0)

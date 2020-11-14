@@ -493,15 +493,22 @@ class Solver(object):
                 count = 0
                 while x_test != None:
                     x_test = x_test.to(self.device)
+                    #curr_fake_list = x_test.clone()
                     x_fake_list = []
-                    x_fake_list.append(x_test)
+                    #x_fake_list.append(x_test)
                     for j in range(self.c_dim):
+                        curr_fake_list = x_test.clone()
                         for n in range(self.args.n):
                             label = torch.ones((x_test.size(0),), dtype=torch.long).to(self.device)
                             label = label * j
                             x_gen = x_test.clone()
-                            x_fake_list.append(self.gen_fake(x_gen, label, k, self.G_ema, self.M_ema, -1))  # remove iters
-                            x_fake_list = torch.cat(x_fake_list, dim=3)
+                            x_fake = self.gen_fake(x_gen, label, k, self.G_ema, self.M_ema, -1) # remove iters
+                            assert curr_fake_list.shape[:2] == x_fake.shape[:2], 'x_fake_list shape is: {}'.format(x_fake_list[0].shape)
+                            curr_fake_list = torch.cat([curr_fake_list, x_fake], dim=3)
+                        
+                        assert curr_fake_list.shape == (self.batch_size[k], 3, self.img_size[k], self.img_size[k] * (self.args.n+1)), 'curr_fake_list shape is {}, expected {}'.format(curr_fake_list.shape,
+                        (self.batch_size[k], 3, self.img_size[k], int(self.img_size[k]) * (self.args.n+1)) ) 
+                        x_fake_list.append(curr_fake_list)
                     try:
                         x_test, _ = next(loader[k])
                     except:

@@ -11,6 +11,7 @@ import os
 import time
 import datetime
 import copy
+from diff_aug import DiffAugment
 
 
 class Solver(object):
@@ -318,7 +319,7 @@ class Solver(object):
             x_real = self.downsample(x_gen, load_idx)
             assert x_real.device == x_gen.device,"check x_real device"
             x_real.requires_grad_()
-            out_src = self.D(x_real, label_org, alpha)
+            out_src = self.D(DiffAugment(x_real), label_org, alpha)
             d_loss_real = torch.mean(torch.nn.ReLU(inplace=True)(1-out_src))
             d_loss_reg = r1_reg(out_src, x_real)
 
@@ -330,7 +331,7 @@ class Solver(object):
                 "check fake image generation Expected: {} Got {}".format(\
                     (self.img_size[load_idx],self.img_size[load_idx]), x_fake.shape[2:])
 
-            out_src = self.D(x_fake, label_trg, alpha)
+            out_src = self.D(DiffAugment(x_fake), label_trg, alpha)
             d_loss_fake = torch.mean(torch.nn.ReLU(inplace=True)(1+out_src))
 
             # Backward and optimize.
@@ -356,13 +357,13 @@ class Solver(object):
                     "check fake image generation Expected: {} Got {}".format((
                     self.img_size[load_idx], self.img_size[load_idx]), x_fake.shape[2:])
 
-                out_src = self.D(x_fake, label_trg, alpha)
+                out_src = self.D(DiffAugment(x_fake), label_trg, alpha)
                 g_loss_fake = - torch.mean(out_src)
 
                 # Target-to-original domain.
                 x_rec = self.gen_fake(x_gen, label_org, load_idx, self.G, self.M, i + 1)
                 g_loss_rec = self.rec_loss(x_real, x_rec)
-                g_loss_fm = self.rec_loss(self.D(x_real, label_org, alpha, 'Gen'), self.D(x_rec, label_org, alpha, 'Gen'))
+                g_loss_fm = self.rec_loss(self.D(DiffAugment(x_real), label_org, alpha, 'Gen'), self.D(DiffAugment(x_rec), label_org, alpha, 'Gen'))
 
                 # Backward and optimize.
                 g_loss = g_loss_fake + self.lambda_rec * g_loss_rec + self.args.lambda_fm * g_loss_fm
@@ -539,7 +540,7 @@ def r1_reg(d_out, x_in):
     )[0]
     grad_dout2 = grad_dout.pow(2)
     assert(grad_dout2.size() == x_in.size())
-    reg = 0.5 * grad_dout2.view(batch_size, -1).sum(1).mean(0)
+    reg = 0.5 * grad_dout2.reshape(batch_size, -1).sum(1).mean(0)
     return reg
 
 
